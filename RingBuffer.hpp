@@ -38,6 +38,7 @@ namespace buffers {
             using iterator_category = std::forward_iterator_tag;
 
             ring_buffer_iterator() noexcept = default;
+
             ring_buffer_iterator(buffer_t source, size_type index, size_type count) noexcept
                     : source_{source},
                       index_{index},
@@ -181,6 +182,7 @@ using std::bool_constant;
         [[nodiscard]] const_iterator cend() const noexcept { return const_iterator{this, head_, size_};}
         [[nodiscard]] bool empty() const noexcept { return size_ == 0; }
         [[nodiscard]] bool full() const noexcept { return size_ == N; }
+        [[nodiscard]] size_type size() const noexcept { return size_; }
         [[nodiscard]] size_type capacity() const noexcept { return N; }
         void clear() noexcept{
             destroy_all(bool_constant<is_trivially_destructible_v<value_type>>{});

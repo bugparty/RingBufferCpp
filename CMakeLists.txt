@@ -9,5 +9,19 @@ else()
     set(CMAKE_CXX_STANDARD 17)
 endif()
 
+# Add Google Test
+# Include FetchContent to download and manage external dependencies
+include(FetchContent)
+FetchContent_Declare(
+  googletest
+  URL https://github.com/google/googletest/archive/refs/tags/release-1.11.0.zip
+)
+FetchContent_MakeAvailable(googletest)
 
-add_executable(RingBufferTest main.cpp)
+enable_testing()
+add_executable(RingBufferTest test_main.cpp)
+target_link_libraries(RingBufferTest gtest gtest_main)
+
+
+include(GoogleTest)
+gtest_discover_tests(RingBufferTest)
