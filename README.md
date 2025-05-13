@@ -58,7 +58,7 @@ This will:
 	2.	Build the RingBufferTest executable from test_main.cpp
 	3.	Run all unit tests
 
-⸻
+---
 
 Usage
 
@@ -86,7 +86,7 @@ overwrite_buf.push_back(4); // Overwrites 1
 ```
 
 
-⸻
+---
 
 Project Structure
 ```bash
@@ -99,7 +99,7 @@ RingBuffer/
 ```
 
 
-⸻
+---
 
 License
 
