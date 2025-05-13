@@ -89,14 +89,14 @@ overwrite_buf.push_back(4); // Overwrites 1
 ⸻
 
 Project Structure
-
+```bash
 RingBuffer/
 ├── CMakeLists.txt       # CMake build config with GoogleTest support
 ├── RingBuffer.hpp       # Header-only ring buffer implementation
 ├── test_main.cpp        # Unit tests using GoogleTest
 ├── LICENSE              # MIT License
 └── README.md            # This file
-
+```
 
 
 ⸻
