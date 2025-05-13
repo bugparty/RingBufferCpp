@@ -1,6 +1,6 @@
 # RingBuffer
 
-[![Build](https://github.com/bugparty/RingBufferCpp/actions/workflows/cmake.yml/badge.svg)](https://github.com/bugparty/RingBufferCpp/actions/workflows/cmake.yml)
+[![Build](https://github.com/bugparty/RingBufferCpp/actions/workflows/cmake.yml/badge.svg?branch=main)](https://github.com/bugparty/RingBufferCpp/actions/workflows/cmake.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-blue)](https://en.cppreference.com/w/cpp/17)
 [![Header-Only](https://img.shields.io/badge/library-header--only-green.svg)](#)
