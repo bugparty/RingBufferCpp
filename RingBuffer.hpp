@@ -1,7 +1,6 @@
 //
 // Created by fancy on 2022/3/29.
 //
-
 #ifndef RINGBUFFERTEST_RINGBUFFER_HPP
 #define RINGBUFFERTEST_RINGBUFFER_HPP
 #include <iostream>
@@ -184,8 +183,11 @@ using std::bool_constant;
         [[nodiscard]] bool full() const noexcept { return size_ == N; }
         [[nodiscard]] size_type size() const noexcept { return size_; }
         [[nodiscard]] size_type capacity() const noexcept { return N; }
-        void clear() noexcept{
+       void clear() noexcept {
             destroy_all(bool_constant<is_trivially_destructible_v<value_type>>{});
+            size_ = 0;
+            head_ = 0;
+            tail_ = 0;
         }
         ~ring_buffer() {
             clear();

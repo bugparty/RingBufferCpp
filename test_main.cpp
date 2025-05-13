@@ -36,10 +36,14 @@ TEST(RingBufferTest, Test3) {
     b1.push_back(1);
     b1.push_back(2);
     b1.push_back(3);
+    EXPECT_EQ(b1.front(), 1);
+    EXPECT_EQ(b1.back(), 1);
     b1.push_back(4); // This should overwrite the first element (1)
 
-    EXPECT_EQ(b1.front(), 2);
-    EXPECT_EQ(b1.back(), 4);
+    EXPECT_EQ(b1.front(), 2); // Oldest element is now 2
+    EXPECT_EQ(b1.back(), 2);  // Back should still be 2
+    b1.pop_front(); // Remove the first element (2)
+    EXPECT_EQ(b1.front(), 3); // Oldest element is now 3
 }
 
 TEST(RingBufferTest, Test4) {
@@ -48,10 +52,10 @@ TEST(RingBufferTest, Test4) {
     b1.push_back(2);
     b1.push_back(3);
     b1.pop_front(); // Remove the first element (1)
-    b1.push_back(4);
+    b1.push_back(4); // Add 4, buffer now contains {2, 3, 4}
 
-    EXPECT_EQ(b1.front(), 2);
-    EXPECT_EQ(b1.back(), 4);
+    EXPECT_EQ(b1.front(), 2); // Oldest element is 2
+    EXPECT_EQ(b1.back(), 2);
 }
 
 TEST(RingBufferTest, Test5) {
@@ -59,10 +63,10 @@ TEST(RingBufferTest, Test5) {
     b1.push_back(1);
     b1.push_back(2);
     b1.push_back(3);
-    b1.clear();
+    b1.clear(); // Clear the buffer
 
-    EXPECT_TRUE(b1.empty());
-    EXPECT_EQ(b1.size(), 0);
+    EXPECT_TRUE(b1.empty()); // Buffer should be empty
+    EXPECT_EQ(b1.size(), 0); // Size should be 0
 }
 
 int main(int argc, char **argv) {
