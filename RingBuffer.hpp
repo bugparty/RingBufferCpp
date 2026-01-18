@@ -8,7 +8,7 @@
 #include <algorithm>
 #include <cstring>
 #include <vector>
-#pragma
+#pragma once
 namespace buffers {
 
     template<typename T, size_t N, bool Overwrite = true>
@@ -55,11 +55,11 @@ namespace buffers {
                 return (*source_)[index_];
             }
             template<bool Z = C, typename std::enable_if<(!Z), int>::type* = nullptr>
-            [[nodiscard]] reference operator->() noexcept {
+            [[nodiscard]] pointer operator->() noexcept {
                 return &((*source_)[index_]);
             }
             template<bool Z = C, typename std::enable_if<(Z), int>::type* = nullptr>
-            [[nodiscard]] const_reference operator->() const noexcept {
+            [[nodiscard]] const_pointer operator->() const noexcept {
                 return &((*source_)[index_]);
             }
             [[nodiscard]] self_type& operator++() noexcept {
@@ -69,7 +69,7 @@ namespace buffers {
             }
             [[nodiscard]] self_type operator++(int) noexcept {
                 auto result = *this;
-                this->operator*();
+                ++(*this);
                 return result;
             }
             [[nodiscard]] size_type index() const noexcept {
@@ -161,9 +161,11 @@ using std::bool_constant;
             --size_;
             tail_ = ++tail_ %N;
         }
-        [[nodiscard]] reference back() noexcept { return reinterpret_cast<reference>(elements_[clamp(head_, 0UL, N - 1)]); }
+        [[nodiscard]] reference back() noexcept {
+            return reinterpret_cast<reference>(elements_[(head_ + N - 1) % N]);
+        }
         [[nodiscard]] const_reference back() const noexcept {
-            return const_cast<self_type*>(back)->back();
+            return const_cast<self_type*>(this)->back();
         }
         [[nodiscard]] reference front() noexcept { return reinterpret_cast<reference >(elements_[tail_]); }
         [[nodiscard]] const_reference front() const noexcept {
@@ -216,7 +218,7 @@ using std::bool_constant;
                 for (auto i = 0; i < size_; ++i)
                     // construct value in memory of aligned storage
                     // using inplace operator new
-                    new( elements_ + ((tail_ + i) % N)) T(rhs[tail_ + ((tail_ + i) % N)]);
+                    new( elements_ + ((tail_ + i) % N)) T(rhs[(tail_ + i) % N]);
             }catch(...) {
                 while(!empty()) {
                     destroy(tail_, bool_constant<std::is_trivially_destructible_v<value_type>>{});
@@ -231,7 +233,7 @@ using std::bool_constant;
 
                 // construct value in memory of aligned storage
                 // using inplace operator new
-                p =reinterpret_cast<storage_type *>(new(elements_ + ((tail_ + i) % N)) T(rhs[tail_ + ((tail_ + i) % N)]));
+                p =reinterpret_cast<storage_type *>(new(elements_ + ((tail_ + i) % N)) T(rhs[(tail_ + i) % N]));
                 if (!p) {
                     break;
                 }
