@@ -89,7 +89,7 @@ When adding or modifying functionality:
 
 - Use SFINAE with `typename std::enable_if<condition, int>::type* = nullptr` pattern (e.g., `typename std::enable_if<(!Z), int>::type* = nullptr` for non-const, `typename std::enable_if<(Z), int>::type* = nullptr` for const)
 - Iterator comparisons based on `count()` not `index()`
-- Modulo arithmetic for circular indexing: `index_ = (index_ + 1) % N`
+- Modulo arithmetic for circular indexing: `index_ = ++index_ % N`
 - Template specialization for const/non-const iterators
 
 ## What NOT to Do
