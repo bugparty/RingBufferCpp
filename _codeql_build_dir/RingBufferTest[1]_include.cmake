@@ -1,5 +1,0 @@
-if(EXISTS "/home/runner/work/RingBufferCpp/RingBufferCpp/_codeql_build_dir/RingBufferTest[1]_tests.cmake")
-  include("/home/runner/work/RingBufferCpp/RingBufferCpp/_codeql_build_dir/RingBufferTest[1]_tests.cmake")
-else()
-  add_test(RingBufferTest_NOT_BUILT RingBufferTest_NOT_BUILT)
-endif()
