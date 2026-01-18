@@ -49,19 +49,19 @@ namespace buffers {
             ring_buffer_iterator& operator=(ring_buffer_iterator const& ) noexcept = default;
             template<bool Z = C, typename std::enable_if<(!Z), int>::type* = nullptr>
             [[nodiscard]] reference operator*() noexcept {
-                return (*source_)[index_];
+                return (*source_)[index_ % N];
             }
             template<bool Z = C, typename std::enable_if<(Z), int>::type* = nullptr>
             [[nodiscard]] const_reference operator*() const noexcept {
-                return (*source_)[index_];
+                return (*source_)[index_ % N];
             }
             template<bool Z = C, typename std::enable_if<(!Z), int>::type* = nullptr>
             [[nodiscard]] pointer operator->() noexcept {
-                return &((*source_)[index_]);
+                return &((*source_)[index_ % N]);
             }
             template<bool Z = C, typename std::enable_if<(Z), int>::type* = nullptr>
             [[nodiscard]] const_pointer operator->() const noexcept {
-                return &((*source_)[index_]);
+                return &((*source_)[index_ % N]);
             }
             self_type& operator++() noexcept {
                 ++count_;
@@ -218,11 +218,11 @@ using std::bool_constant;
         // Iterator to oldest element.
         [[nodiscard]] iterator begin() noexcept { return iterator{this, tail_, 0};}
         // Iterator to one past newest element.
-        [[nodiscard]] iterator end() noexcept { return iterator{this, N, size_};}
+        [[nodiscard]] iterator end() noexcept { return iterator{this, tail_ + size_, size_};}
         // Const iterator to oldest element.
         [[nodiscard]] const_iterator cbegin() const noexcept { return const_iterator{this, tail_, 0};}
         // Const iterator to one past newest element.
-        [[nodiscard]] const_iterator cend() const noexcept { return const_iterator{this, N, size_};}
+        [[nodiscard]] const_iterator cend() const noexcept { return const_iterator{this, tail_ + size_, size_};}
         // Check if buffer has no elements.
         [[nodiscard]] bool empty() const noexcept { return size_ == 0; }
         // Check if buffer is at capacity.
