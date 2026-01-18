@@ -3,4 +3,6 @@ cmake-build-debug
 cmake-build-release
 build
 Testing/Temporary
+_codeql_build_dir
+_codeql_detected_source_root
 
