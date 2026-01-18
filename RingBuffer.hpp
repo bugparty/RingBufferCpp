@@ -66,9 +66,9 @@ namespace buffers {
             self_type& operator++() noexcept {
                 ++count_;
                 if (count_ >= source_->size()) {
-                    index_ = N;  // Set to sentinel value when reaching end
+                    index_ = N;  // Set to sentinel value (out of valid range [0, N-1]) when reaching end
                 } else {
-                    index_ = ++index_ % N;
+                    index_ = (index_ + 1) % N;
                 }
                 return *this;
             }
