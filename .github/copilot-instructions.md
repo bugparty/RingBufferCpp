@@ -67,7 +67,7 @@ ctest --output-on-failure
 When adding or modifying functionality:
 
 1. **Write tests first** or alongside implementation
-2. **Test naming**: Use descriptive names like `Test1`, `Test2`, or `Test6IteratorOrder`
+2. **Test naming**: Use descriptive names that explain what's being tested (e.g., `Test6IteratorOrder`, `BasicFunctionality`, `OverwriteBehavior`). Note: existing tests use simple numerical names like `Test1`, `Test2` for brevity.
 3. **Use Google Test macros**: `EXPECT_EQ`, `EXPECT_TRUE`, `EXPECT_FALSE`, etc.
 4. **Test edge cases**:
    - Empty buffer
@@ -87,7 +87,7 @@ When adding or modifying functionality:
 
 ## Common Patterns in This Codebase
 
-- Use `typename std::enable_if<condition, int>::type* = nullptr` for SFINAE
+- Use SFINAE with `typename std::enable_if<condition, int>::type* = nullptr` pattern (e.g., `typename std::enable_if<(!Z), int>::type* = nullptr` for non-const, `typename std::enable_if<(Z), int>::type* = nullptr` for const)
 - Iterator comparisons based on `count()` not `index()`
 - Modulo arithmetic for circular indexing: `index_ = (index_ + 1) % N`
 - Template specialization for const/non-const iterators
