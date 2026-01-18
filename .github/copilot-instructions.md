@@ -42,14 +42,17 @@ This is a modern, header-only C++17 ring buffer (circular buffer) implementation
 ### Build Commands
 
 ```bash
-cmake -S . -B build
-cmake --build build
+mkdir build && cd build
+cmake ..
+cmake --build .
 ```
 
 ### Test Commands
 
+From within the `build` directory:
+
 ```bash
-ctest --test-dir build --output-on-failure
+ctest --output-on-failure
 ```
 
 ### Test Framework
@@ -103,4 +106,4 @@ When adding or modifying functionality:
 - The buffer size `N` is a compile-time constant (template parameter)
 - Support both trivial and non-trivial types for `T`
 - Handle move-only types appropriately
-- Maintain compatibility with C++17 (not C++14 or earlier, unless testing Android simulation mode)
+- Maintain compatibility with C++17 (the project has a `Simulate_Android_ToolChain` CMake option for testing C++14 compatibility without exceptions, but default is C++17)
