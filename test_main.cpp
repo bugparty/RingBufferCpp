@@ -119,7 +119,26 @@ TEST(RingBufferTest, IteratorsFromDifferentBuffersAreNotEqual) {
     ring_buffer<int, 3> b1;
     ring_buffer<int, 3> b2;
 
+    // Iterators from different buffers should not be equal
     EXPECT_NE(b1.cbegin(), b2.cbegin());
+    
+    // Add elements to both buffers
+    b1.push_back(1);
+    b1.push_back(2);
+    b2.push_back(1);
+    b2.push_back(2);
+    
+    // Iterators at the same logical position from different buffers should still be unequal
+    EXPECT_NE(b1.cbegin(), b2.cbegin());
+    EXPECT_NE(b1.cend(), b2.cend());
+    
+    // Iterators from the same buffer at the same position should be equal
+    EXPECT_EQ(b1.cbegin(), b1.cbegin());
+    EXPECT_EQ(b1.cend(), b1.cend());
+    
+    // begin() and end() from the same buffer should be different when not empty
+    EXPECT_NE(b1.cbegin(), b1.cend());
+    EXPECT_NE(b2.cbegin(), b2.cend());
 }
 
 TEST(RingBufferTest, NoOverwriteWhenFull) {
@@ -334,6 +353,76 @@ TEST(RingBufferTest, NonMemberSwapWorks) {
     EXPECT_EQ(b2.size(), 2);
     EXPECT_EQ(b2.front(), 3);
     EXPECT_EQ(b2.back(), 4);
+}
+
+// Tests for move and swap with non-trivially copyable types
+TEST(RingBufferTest, MoveConstructionWithNonTriviallyCopyableType) {
+    ring_buffer<std::string, 4> b1;
+    b1.push_back("hello");
+    b1.push_back("world");
+    b1.push_back("test");
+    b1.pop_front();
+    b1.push_back("data");
+
+    ring_buffer<std::string, 4> b2(std::move(b1));
+
+    EXPECT_TRUE(b1.empty());
+    EXPECT_EQ(b2.size(), 3);
+    EXPECT_EQ(b2.front(), "world");
+    EXPECT_EQ(b2.back(), "data");
+}
+
+TEST(RingBufferTest, MoveAssignmentWithNonTriviallyCopyableType) {
+    ring_buffer<std::string, 3> b1;
+    b1.push_back("foo");
+    b1.push_back("bar");
+
+    ring_buffer<std::string, 3> b2;
+    b2.push_back("existing");
+    b2 = std::move(b1);
+
+    EXPECT_TRUE(b1.empty());
+    EXPECT_EQ(b2.size(), 2);
+    EXPECT_EQ(b2.front(), "foo");
+    EXPECT_EQ(b2.back(), "bar");
+}
+
+TEST(RingBufferTest, SwapWithNonTriviallyCopyableType) {
+    ring_buffer<std::string, 3> b1;
+    b1.push_back("one");
+    b1.push_back("two");
+
+    ring_buffer<std::string, 3> b2;
+    b2.push_back("alpha");
+    b2.push_back("beta");
+    b2.push_back("gamma");
+
+    b1.swap(b2);
+
+    EXPECT_EQ(b1.size(), 3);
+    EXPECT_EQ(b1.front(), "alpha");
+    EXPECT_EQ(b1.back(), "gamma");
+    EXPECT_EQ(b2.size(), 2);
+    EXPECT_EQ(b2.front(), "one");
+    EXPECT_EQ(b2.back(), "two");
+}
+
+TEST(RingBufferTest, NonMemberSwapWithNonTriviallyCopyableType) {
+    ring_buffer<std::vector<int>, 2> b1;
+    b1.push_back(std::vector<int>{1, 2, 3});
+    b1.push_back(std::vector<int>{4, 5, 6});
+
+    ring_buffer<std::vector<int>, 2> b2;
+    b2.push_back(std::vector<int>{7, 8, 9});
+
+    using std::swap;
+    swap(b1, b2);
+
+    EXPECT_EQ(b1.size(), 1);
+    EXPECT_EQ(b1.front(), (std::vector<int>{7, 8, 9}));
+    EXPECT_EQ(b2.size(), 2);
+    EXPECT_EQ(b2.front(), (std::vector<int>{1, 2, 3}));
+    EXPECT_EQ(b2.back(), (std::vector<int>{4, 5, 6}));
 }
 
 int main(int argc, char **argv) {
