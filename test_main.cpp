@@ -119,7 +119,26 @@ TEST(RingBufferTest, IteratorsFromDifferentBuffersAreNotEqual) {
     ring_buffer<int, 3> b1;
     ring_buffer<int, 3> b2;
 
+    // Iterators from different buffers should not be equal
     EXPECT_NE(b1.cbegin(), b2.cbegin());
+    
+    // Add elements to both buffers
+    b1.push_back(1);
+    b1.push_back(2);
+    b2.push_back(1);
+    b2.push_back(2);
+    
+    // Iterators at the same logical position from different buffers should still be unequal
+    EXPECT_NE(b1.cbegin(), b2.cbegin());
+    EXPECT_NE(b1.cend(), b2.cend());
+    
+    // Iterators from the same buffer at the same position should be equal
+    EXPECT_EQ(b1.cbegin(), b1.cbegin());
+    EXPECT_EQ(b1.cend(), b1.cend());
+    
+    // begin() and end() from the same buffer should be different when not empty
+    EXPECT_NE(b1.cbegin(), b1.cend());
+    EXPECT_NE(b2.cbegin(), b2.cend());
 }
 
 TEST(RingBufferTest, NoOverwriteWhenFull) {
