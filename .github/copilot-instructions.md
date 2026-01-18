@@ -67,7 +67,7 @@ ctest --output-on-failure
 When adding or modifying functionality:
 
 1. **Write tests first** or alongside implementation
-2. **Test naming**: Use descriptive names that explain what's being tested (e.g., `Test6IteratorOrder`, `BasicFunctionality`, `OverwriteBehavior`). Note: existing tests use simple numerical names like `Test1`, `Test2` for brevity.
+2. **Test naming**: The project uses numerical test names (`Test1`, `Test2`) with some descriptive ones (`Test6IteratorOrder`). Follow this convention for consistency.
 3. **Use Google Test macros**: `EXPECT_EQ`, `EXPECT_TRUE`, `EXPECT_FALSE`, etc.
 4. **Test edge cases**:
    - Empty buffer
