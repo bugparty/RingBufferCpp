@@ -106,4 +106,4 @@ When adding or modifying functionality:
 - The buffer size `N` is a compile-time constant (template parameter)
 - Support both trivial and non-trivial types for `T`
 - Handle move-only types appropriately
-- Maintain compatibility with C++17 (the project has a `Simulate_Android_ToolChain` CMake option for testing C++14 compatibility without exceptions, but default is C++17)
+- Maintain compatibility with C++17 (the project has a `Simulate_Android_ToolChain` CMake option that when enabled uses C++14 with `-fno-exceptions`, but the default is C++17)
