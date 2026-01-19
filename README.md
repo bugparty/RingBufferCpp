@@ -46,8 +46,8 @@ This project demonstrates many modern C++ best practices:
 ### Build Instructions
 
 ```bash
-git clone https://github.com/yourusername/RingBuffer.git
-cd RingBuffer
+git clone https://github.com/bugparty/RingBufferCpp.git
+cd RingBufferCpp
 mkdir build && cd build
 cmake ..
 cmake --build .
@@ -57,6 +57,39 @@ This will:
 	1.	Fetch and build GoogleTest using FetchContent
 	2.	Build the RingBufferTest executable from test_main.cpp
 	3.	Run all unit tests
+
+---
+
+## FetchContent Integration
+
+```cmake
+include(FetchContent)
+FetchContent_Declare(
+  RingBuffer
+  GIT_REPOSITORY https://github.com/bugparty/RingBufferCpp.git
+  GIT_TAG main
+)
+FetchContent_MakeAvailable(RingBuffer)
+
+target_link_libraries(your_target PRIVATE RingBuffer::RingBuffer)
+```
+
+To skip building tests in your parent project, set:
+
+```cmake
+set(RINGBUFFER_BUILD_TESTS OFF)
+```
+
+---
+
+## Testing Policy
+
+When changing the library, run the tests before pushing changes:
+
+```bash
+cmake --build build
+ctest --output-on-failure --test-dir build
+```
 
 ---
 
