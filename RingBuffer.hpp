@@ -7,6 +7,7 @@
 #include <type_traits>
 #include <algorithm>
 #include <cstring>
+#include <utility>
 #include <vector>
 #pragma once
 namespace buffers {
@@ -63,8 +64,12 @@ namespace buffers {
                 return &((*source_)[index_]);
             }
             [[nodiscard]] self_type& operator++() noexcept {
-                index_ = ++index_ % N;
                 ++count_;
+                if (count_ >= source_->size()) {
+                    index_ = N;  // Set to sentinel value (out of valid range [0, N-1]) when reaching end
+                } else {
+                    index_ = (index_ + 1) % N;
+                }
                 return *this;
             }
             [[nodiscard]] self_type operator++(int) noexcept {
@@ -78,6 +83,9 @@ namespace buffers {
             [[nodiscard]] size_type count() const noexcept {
                 return count_;
             }
+            [[nodiscard]] buffer_t source() const noexcept {
+                return source_;
+            }
             ~ring_buffer_iterator() = default;
         private:
             buffer_t source_{};
@@ -88,13 +96,13 @@ namespace buffers {
         template<typename T, size_t N, bool C, bool Overwrite>
         bool operator==(ring_buffer_iterator<T,N,C,Overwrite> const& l,
                         ring_buffer_iterator<T,N,C,Overwrite> const& r) noexcept {
-            return l.count() == r.count();
+            return l.source() == r.source() && l.index() == r.index();
         }
 
         template<typename T, size_t N, bool C, bool Overwrite>
         bool operator!=(ring_buffer_iterator<T,N,C,Overwrite> const& l,
                         ring_buffer_iterator<T,N,C,Overwrite> const& r) noexcept {
-            return l.count() != r.count();
+            return l.source() != r.source() || l.index() != r.index();
         }
 
     }
@@ -134,11 +142,14 @@ using std::bool_constant;
         using iterator = detail::ring_buffer_iterator<T, N, false, Overwrite>;
         using const_iterator = detail::ring_buffer_iterator<T, N, true, Overwrite>;
 
+        // Create an empty ring buffer.
         ring_buffer() noexcept = default;
+        // Copy contents and state from another buffer.
         ring_buffer(ring_buffer const& rhs) noexcept(is_nothrow_copy_constructible_v<value_type>)
         {
             copy_impl(rhs, bool_constant<is_trivially_copyable_v<T>>{});
         }
+        // Assign from another buffer.
         ring_buffer& operator=(ring_buffer const& rhs) noexcept(is_nothrow_copy_constructible_v<value_type>) {
             if(this == &rhs)
                 return *this;
@@ -148,10 +159,31 @@ using std::bool_constant;
 
             return *this;
         }
+        // Move contents and state from another buffer.
+        ring_buffer(ring_buffer&& rhs) noexcept(std::is_nothrow_move_constructible<value_type>::value)
+        {
+            move_impl(rhs, bool_constant<is_trivially_copyable_v<T>>{});
+        }
+        // Move-assign from another buffer.
+        ring_buffer& operator=(ring_buffer&& rhs) noexcept(std::is_nothrow_move_constructible<value_type>::value) {
+            if(this == &rhs)
+                return *this;
+
+            destroy_all(bool_constant<is_trivially_copyable_v<T>>{});
+            move_impl(rhs, bool_constant<is_trivially_copyable_v<T>>{});
+
+            return *this;
+        }
+        // Swap contents with another buffer.
+        void swap(self_type& rhs) noexcept(noexcept(swap_impl(rhs, bool_constant<is_trivially_copyable_v<T>>{}))) {
+            swap_impl(rhs, bool_constant<is_trivially_copyable_v<T>>{});
+        }
+        // Append an element, overwriting when configured.
         template<typename U>
         void push_back(U&& value) {
             push_back(std::forward<U>(value), bool_constant<Overwrite>{});
         }
+        // Remove the oldest element if present.
         void pop_front() noexcept{
             if(empty())
                 return;
@@ -159,38 +191,74 @@ using std::bool_constant;
             destroy(tail_, bool_constant<is_trivially_destructible_v<value_type>>{});
 
             --size_;
-            tail_ = ++tail_ %N;
+            tail_ = (tail_ + 1) % N;
         }
+        // Access the newest element.
+        // Preconditions: The buffer must not be empty (!empty()).
+        // Calling back() on an empty buffer results in undefined behavior.
         [[nodiscard]] reference back() noexcept {
             return reinterpret_cast<reference>(elements_[(head_ + N - 1) % N]);
         }
+        // Access the newest element (const).
+        // Preconditions: The buffer must not be empty (!empty()).
+        // Calling back() on an empty buffer results in undefined behavior.
         [[nodiscard]] const_reference back() const noexcept {
             return const_cast<self_type*>(this)->back();
         }
+        // Access the oldest element.
+        // Preconditions: The buffer must not be empty (!empty()).
+        // Calling front() on an empty buffer results in undefined behavior.
         [[nodiscard]] reference front() noexcept { return reinterpret_cast<reference >(elements_[tail_]); }
+        // Access the oldest element (const).
+        // Preconditions: The buffer must not be empty (!empty()).
+        // Calling front() on an empty buffer results in undefined behavior.
         [[nodiscard]] const_reference front() const noexcept {
             return const_cast<self_type*>(this)->front();
         }
+        // Direct access by internal storage index.
+        // Preconditions: index must be in the range [0, N).
+        // Accessing an index outside this range results in undefined behavior.
+        // Note: This accesses the internal storage directly, not the logical element order.
+        // Use iterators for sequential access to elements in insertion order.
         [[nodiscard]] reference operator[](size_type index) noexcept {
             return reinterpret_cast<reference >(elements_[index]);
         }
+        // Direct access by internal storage index (const).
+        // Preconditions: index must be in the range [0, N).
+        // Accessing an index outside this range results in undefined behavior.
+        // Note: This accesses the internal storage directly, not the logical element order.
+        // Use iterators for sequential access to elements in insertion order.
         [[nodiscard]] const_reference operator[](size_type index) const noexcept {
             return const_cast<self_type *>(this)->operator[](index);
         }
-        [[nodiscard]] iterator begin() noexcept { return iterator{this, tail_, 0};}
-        [[nodiscard]] iterator end() noexcept { return iterator{this, head_, size_};}
-        [[nodiscard]] const_iterator cbegin() const noexcept { return const_iterator{this, tail_, 0};}
-        [[nodiscard]] const_iterator cend() const noexcept { return const_iterator{this, head_, size_};}
+        // Iterator to oldest element (past-the-end when empty).
+        [[nodiscard]] iterator begin() noexcept {
+            return empty() ? end() : iterator{this, tail_, 0};
+        }
+        // Iterator to one past newest element.
+        [[nodiscard]] iterator end() noexcept { return iterator{this, N, size_};}
+        // Const iterator to oldest element (past-the-end when empty).
+        [[nodiscard]] const_iterator cbegin() const noexcept {
+            return empty() ? cend() : const_iterator{this, tail_, 0};
+        }
+        // Const iterator to one past newest element.
+        [[nodiscard]] const_iterator cend() const noexcept { return const_iterator{this, N, size_};}
+        // Check if buffer has no elements.
         [[nodiscard]] bool empty() const noexcept { return size_ == 0; }
+        // Check if buffer is at capacity.
         [[nodiscard]] bool full() const noexcept { return size_ == N; }
+        // Current element count.
         [[nodiscard]] size_type size() const noexcept { return size_; }
+        // Maximum element count.
         [[nodiscard]] size_type capacity() const noexcept { return N; }
+        // Remove all elements and reset indices.
        void clear() noexcept {
             destroy_all(bool_constant<is_trivially_destructible_v<value_type>>{});
             size_ = 0;
             head_ = 0;
             tail_ = 0;
         }
+        // Destroy elements on teardown.
         ~ring_buffer() {
             clear();
         };
@@ -199,12 +267,12 @@ using std::bool_constant;
         void destroy_all(std::false_type) {
             while(!empty()) {
                 destroy(tail_, bool_constant<is_trivially_destructible_v<value_type>>{});
-                tail_ = ++tail_ % N;
+                tail_ = (tail_ + 1) % N;
                 --size_;
             }
         }
         void copy_impl(self_type const& rhs, std::true_type) {
-            std::memcpy(elements_, rhs.elements_, rhs.size_ * sizeof(T));
+            std::memcpy(elements_, rhs.elements_, N * sizeof(T));
             size_ = rhs.size_;
             tail_ = rhs.tail_;
             head_ = rhs.head_;
@@ -222,31 +290,81 @@ using std::bool_constant;
             }catch(...) {
                 while(!empty()) {
                     destroy(tail_, bool_constant<std::is_trivially_destructible_v<value_type>>{});
-                    tail_ = ++tail_ % N;
+                    tail_ = (tail_ + 1) % N;
                     --size_;
                 }
                 throw;
             }
 #else
-            storage_type *p = nullptr;
             for (auto i = 0; i < size_; ++i) {
-
                 // construct value in memory of aligned storage
                 // using inplace operator new
-                p =reinterpret_cast<storage_type *>(new(elements_ + ((tail_ + i) % N)) T(rhs[(tail_ + i) % N]));
-                if (!p) {
-                    break;
-                }
+                new(elements_ + ((tail_ + i) % N)) T(rhs[(tail_ + i) % N]);
             }
-            if (!p) {
-                while(!empty()) {
-                    destroy(tail_, bool_constant<is_trivially_destructible_v<value_type>>{});
-                    tail_ = ++tail_ % N;
-                    --size_;
+#endif
+        }
+        void move_impl(self_type& rhs, std::true_type) {
+            std::memcpy(elements_, rhs.elements_, N * sizeof(T));
+            size_ = rhs.size_;
+            tail_ = rhs.tail_;
+            head_ = rhs.head_;
+            rhs.clear();
+        }
+        void move_impl(self_type& rhs, std::false_type) {
+            auto original_size = rhs.size_;
+            auto original_tail = rhs.tail_;
+            auto original_head = rhs.head_;
+#ifdef __cpp_exceptions
+            size_type i = 0;
+            try {
+                for (; i < original_size; ++i)
+                    new( elements_ + ((original_tail + i) % N)) T(std::move(rhs[(original_tail + i) % N]));
+            }catch(...) {
+                for (size_type j = 0; j < i; ++j) {
+                    destroy((original_tail + j) % N, bool_constant<std::is_trivially_destructible_v<value_type>>{});
+                }
+                throw;
+            }
+#else
+            for (size_type i = 0; i < original_size; ++i) {
+                new(elements_ + ((original_tail + i) % N)) T(std::move(rhs[(original_tail + i) % N]));
+            }
+#endif
+            tail_ = original_tail;
+            head_ = original_head;
+            size_ = original_size;
+            rhs.clear();
+        }
+        void swap_impl(self_type& rhs, std::true_type) noexcept {
+            std::swap(elements_, rhs.elements_);
+            std::swap(head_, rhs.head_);
+            std::swap(tail_, rhs.tail_);
+            std::swap(size_, rhs.size_);
+        }
+        void swap_impl(self_type& rhs, std::false_type) {
+            if (this == &rhs) return;
+            
+            size_t min_size = std::min(size_, rhs.size_);
+            size_t i = 0;
+            for (; i < min_size; ++i) {
+                std::swap((*this)[(tail_ + i) % N], rhs[(rhs.tail_ + i) % N]);
+            }
+            
+            if (size_ > rhs.size_) {
+                for (; i < size_; ++i) {
+                    new(&rhs.elements_[(rhs.tail_ + i) % N]) T(std::move((*this)[(tail_ + i) % N]));
+                    destroy((tail_ + i) % N, bool_constant<is_trivially_destructible_v<value_type>>{});
+                }
+            } else if (rhs.size_ > size_) {
+                for (; i < rhs.size_; ++i) {
+                    new(&elements_[(tail_ + i) % N]) T(std::move(rhs[(rhs.tail_ + i) % N]));
+                    rhs.destroy((rhs.tail_ + i) % N, bool_constant<is_trivially_destructible_v<value_type>>{});
                 }
             }
 
-#endif
+            std::swap(head_, rhs.head_);
+            std::swap(tail_, rhs.tail_);
+            std::swap(size_, rhs.size_);
         }
         template<typename U>
         void push_back(U&& value, std::true_type) {
@@ -265,10 +383,10 @@ using std::bool_constant;
                 destroy(head_, bool_constant<is_trivially_destructible_v<value_type>>{});
 
             new(elements_ + head_ ) T{std::forward<U>(value)};
-            head_ = ++head_ %N;
+            head_ = (head_ + 1) % N;
 
             if(full())
-                tail_ = ++tail_ % N;
+                tail_ = (tail_ + 1) % N;
 
             if(!full())
                 ++size_;
@@ -283,6 +401,11 @@ using std::bool_constant;
         size_type tail_{};
         size_type size_{};
     };
+
+    template<typename T, size_t N, bool Overwrite>
+    void swap(ring_buffer<T, N, Overwrite>& lhs, ring_buffer<T, N, Overwrite>& rhs) noexcept(noexcept(lhs.swap(rhs))) {
+        lhs.swap(rhs);
+    }
 
 }
 #endif //RINGBUFFERTEST_RINGBUFFER_HPP
