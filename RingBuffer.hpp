@@ -194,24 +194,40 @@ using std::bool_constant;
             tail_ = ++tail_ %N;
         }
         // Access the newest element.
+        // Preconditions: The buffer must not be empty (!empty()).
+        // Calling back() on an empty buffer results in undefined behavior.
         [[nodiscard]] reference back() noexcept {
             return reinterpret_cast<reference>(elements_[(head_ + N - 1) % N]);
         }
         // Access the newest element (const).
+        // Preconditions: The buffer must not be empty (!empty()).
+        // Calling back() on an empty buffer results in undefined behavior.
         [[nodiscard]] const_reference back() const noexcept {
             return const_cast<self_type*>(this)->back();
         }
         // Access the oldest element.
+        // Preconditions: The buffer must not be empty (!empty()).
+        // Calling front() on an empty buffer results in undefined behavior.
         [[nodiscard]] reference front() noexcept { return reinterpret_cast<reference >(elements_[tail_]); }
         // Access the oldest element (const).
+        // Preconditions: The buffer must not be empty (!empty()).
+        // Calling front() on an empty buffer results in undefined behavior.
         [[nodiscard]] const_reference front() const noexcept {
             return const_cast<self_type*>(this)->front();
         }
         // Direct access by internal storage index.
+        // Preconditions: index must be in the range [0, N).
+        // Accessing an index outside this range results in undefined behavior.
+        // Note: This accesses the internal storage directly, not the logical element order.
+        // Use iterators for sequential access to elements in insertion order.
         [[nodiscard]] reference operator[](size_type index) noexcept {
             return reinterpret_cast<reference >(elements_[index]);
         }
         // Direct access by internal storage index (const).
+        // Preconditions: index must be in the range [0, N).
+        // Accessing an index outside this range results in undefined behavior.
+        // Note: This accesses the internal storage directly, not the logical element order.
+        // Use iterators for sequential access to elements in insertion order.
         [[nodiscard]] const_reference operator[](size_type index) const noexcept {
             return const_cast<self_type *>(this)->operator[](index);
         }
