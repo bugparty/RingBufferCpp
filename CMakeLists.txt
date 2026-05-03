@@ -18,13 +18,18 @@ if (RINGBUFFER_BUILD_TESTS)
     include(FetchContent)
     FetchContent_Declare(
       googletest
-      URL https://github.com/google/googletest/archive/refs/tags/release-1.11.0.zip
+      URL https://github.com/google/googletest/archive/refs/tags/v1.17.0.zip
     )
     FetchContent_MakeAvailable(googletest)
 
     enable_testing()
-    add_executable(RingBufferTest test_main.cpp)
-    target_link_libraries(RingBufferTest gtest gtest_main RingBuffer::RingBuffer)
+    add_executable(RingBufferTest
+        tests/core_lifecycle_tests.cpp
+        tests/iterator_tests.cpp
+        tests/rule_of_five_tests.cpp
+    )
+    target_include_directories(RingBufferTest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    target_link_libraries(RingBufferTest PRIVATE gtest gtest_main RingBuffer::RingBuffer)
 
     include(GoogleTest)
     gtest_discover_tests(RingBufferTest)

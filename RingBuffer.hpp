@@ -231,12 +231,16 @@ using std::bool_constant;
         [[nodiscard]] const_reference operator[](size_type index) const noexcept {
             return const_cast<self_type *>(this)->operator[](index);
         }
-        // Iterator to oldest element.
-        [[nodiscard]] iterator begin() noexcept { return iterator{this, tail_, 0};}
+        // Iterator to oldest element (past-the-end when empty).
+        [[nodiscard]] iterator begin() noexcept {
+            return empty() ? end() : iterator{this, tail_, 0};
+        }
         // Iterator to one past newest element.
         [[nodiscard]] iterator end() noexcept { return iterator{this, N, size_};}
-        // Const iterator to oldest element.
-        [[nodiscard]] const_iterator cbegin() const noexcept { return const_iterator{this, tail_, 0};}
+        // Const iterator to oldest element (past-the-end when empty).
+        [[nodiscard]] const_iterator cbegin() const noexcept {
+            return empty() ? cend() : const_iterator{this, tail_, 0};
+        }
         // Const iterator to one past newest element.
         [[nodiscard]] const_iterator cend() const noexcept { return const_iterator{this, N, size_};}
         // Check if buffer has no elements.
