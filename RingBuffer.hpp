@@ -191,7 +191,7 @@ using std::bool_constant;
             destroy(tail_, bool_constant<is_trivially_destructible_v<value_type>>{});
 
             --size_;
-            tail_ = ++tail_ %N;
+            tail_ = (tail_ + 1) % N;
         }
         // Access the newest element.
         // Preconditions: The buffer must not be empty (!empty()).
@@ -263,7 +263,7 @@ using std::bool_constant;
         void destroy_all(std::false_type) {
             while(!empty()) {
                 destroy(tail_, bool_constant<is_trivially_destructible_v<value_type>>{});
-                tail_ = ++tail_ % N;
+                tail_ = (tail_ + 1) % N;
                 --size_;
             }
         }
@@ -286,7 +286,7 @@ using std::bool_constant;
             }catch(...) {
                 while(!empty()) {
                     destroy(tail_, bool_constant<std::is_trivially_destructible_v<value_type>>{});
-                    tail_ = ++tail_ % N;
+                    tail_ = (tail_ + 1) % N;
                     --size_;
                 }
                 throw;
@@ -305,7 +305,7 @@ using std::bool_constant;
             if (!p) {
                 while(!empty()) {
                     destroy(tail_, bool_constant<is_trivially_destructible_v<value_type>>{});
-                    tail_ = ++tail_ % N;
+                    tail_ = (tail_ + 1) % N;
                     --size_;
                 }
             }
@@ -330,7 +330,7 @@ using std::bool_constant;
             }catch(...) {
                 while(!empty()) {
                     destroy(tail_, bool_constant<std::is_trivially_destructible_v<value_type>>{});
-                    tail_ = ++tail_ % N;
+                    tail_ = (tail_ + 1) % N;
                     --size_;
                 }
                 throw;
@@ -346,7 +346,7 @@ using std::bool_constant;
             if (!p) {
                 while(!empty()) {
                     destroy(tail_, bool_constant<is_trivially_destructible_v<value_type>>{});
-                    tail_ = ++tail_ % N;
+                    tail_ = (tail_ + 1) % N;
                     --size_;
                 }
             }
@@ -382,10 +382,10 @@ using std::bool_constant;
                 destroy(head_, bool_constant<is_trivially_destructible_v<value_type>>{});
 
             new(elements_ + head_ ) T{std::forward<U>(value)};
-            head_ = ++head_ %N;
+            head_ = (head_ + 1) % N;
 
             if(full())
-                tail_ = ++tail_ % N;
+                tail_ = (tail_ + 1) % N;
 
             if(!full())
                 ++size_;
