@@ -324,37 +324,39 @@ using std::bool_constant;
             rhs.clear();
         }
         void move_impl(self_type& rhs, std::false_type) {
-            tail_ = rhs.tail_;
-            head_ = rhs.head_;
-            size_ = rhs.size_;
+            auto original_size = rhs.size_;
+            auto original_tail = rhs.tail_;
+            auto original_head = rhs.head_;
 #ifdef __cpp_exceptions
+            size_type i = 0;
             try {
-                for (auto i = 0; i < size_; ++i)
-                    new( elements_ + ((tail_ + i) % N)) T(std::move(rhs[(tail_ + i) % N]));
+                for (; i < original_size; ++i)
+                    new( elements_ + ((original_tail + i) % N)) T(std::move(rhs[(original_tail + i) % N]));
             }catch(...) {
-                while(!empty()) {
-                    destroy(tail_, bool_constant<std::is_trivially_destructible_v<value_type>>{});
-                    tail_ = (tail_ + 1) % N;
-                    --size_;
+                for (size_type j = 0; j < i; ++j) {
+                    destroy((original_tail + j) % N, bool_constant<std::is_trivially_destructible_v<value_type>>{});
                 }
                 throw;
             }
 #else
             storage_type *p = nullptr;
-            for (auto i = 0; i < size_; ++i) {
-                p =reinterpret_cast<storage_type *>(new(elements_ + ((tail_ + i) % N)) T(std::move(rhs[(tail_ + i) % N])));
+            size_type i = 0;
+            for (; i < original_size; ++i) {
+                p =reinterpret_cast<storage_type *>(new(elements_ + ((original_tail + i) % N)) T(std::move(rhs[(original_tail + i) % N])));
                 if (!p) {
                     break;
                 }
             }
             if (!p) {
-                while(!empty()) {
-                    destroy(tail_, bool_constant<is_trivially_destructible_v<value_type>>{});
-                    tail_ = (tail_ + 1) % N;
-                    --size_;
+                for (size_type j = 0; j < i; ++j) {
+                    destroy((original_tail + j) % N, bool_constant<is_trivially_destructible_v<value_type>>{});
                 }
+                return;
             }
 #endif
+            tail_ = original_tail;
+            head_ = original_head;
+            size_ = original_size;
             rhs.clear();
         }
         void swap_impl(self_type& rhs, std::true_type) noexcept {
@@ -364,10 +366,22 @@ using std::bool_constant;
             std::swap(size_, rhs.size_);
         }
         void swap_impl(self_type& rhs, std::false_type) {
+            if (this == &rhs) return;
             self_type temp;
             temp.move_impl(*this, std::false_type{});
-            this->move_impl(rhs, std::false_type{});
-            rhs.move_impl(temp, std::false_type{});
+            try {
+                this->move_impl(rhs, std::false_type{});
+            } catch (...) {
+                this->move_impl(temp, std::false_type{});
+                throw;
+            }
+            try {
+                rhs.move_impl(temp, std::false_type{});
+            } catch (...) {
+                rhs.move_impl(*this, std::false_type{});
+                this->move_impl(temp, std::false_type{});
+                throw;
+            }
         }
         template<typename U>
         void push_back(U&& value, std::true_type) {

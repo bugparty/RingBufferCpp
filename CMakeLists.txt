@@ -27,6 +27,7 @@ if (RINGBUFFER_BUILD_TESTS)
         tests/core_lifecycle_tests.cpp
         tests/iterator_tests.cpp
         tests/rule_of_five_tests.cpp
+        tests/swap_exception_test.cpp
     )
     target_include_directories(RingBufferTest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     target_link_libraries(RingBufferTest PRIVATE gtest gtest_main RingBuffer::RingBuffer)
