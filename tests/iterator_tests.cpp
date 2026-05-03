@@ -4,6 +4,8 @@
 #include <utility>
 #include <vector>
 
+// Verify that after a wrap-around (overwrite),
+// the iterator still correctly traverses elements from oldest to newest (logical order).
 TEST(RingBufferTest, Test6IteratorOrder) {
     ring_buffer<int, 3> b1;
     b1.push_back(10);
@@ -117,6 +119,21 @@ TEST(RingBufferIteratorTest, PostfixIncrementReturnsPriorPosition) {
 
     ++it;
     EXPECT_EQ(it, buf.end());
+
+    buf.push_back(30);
+    // After push_back(30), the buffer contains [10, 20, 30].
+    // The iterator 'it' was created when size was 2, it reached end (index=5, count=2).
+    // Now buf.end() has index=5, count=3.
+    // However, operator== only compares source_ and index_.
+    // Since both have index_ == 5 (N), they are still considered equal.
+    EXPECT_EQ(it, buf.end());
+
+    // Even though 'it' was logically at the end of a 2-element buffer, 
+    // it remains at the sentinel position and thus still compares equal to buf.end() 
+    // of the now 3-element buffer. 
+    // This demonstrates the current iterator invalidation behavior:
+    // iterators pointing to the "end" (sentinel) stay at the "end" even if more elements are added,
+    // as long as the sentinel index (N) is used to represent the end.
 }
 
 TEST(RingBufferIteratorTest, MutableIteratorWritesThroughRefs) {
