@@ -296,24 +296,11 @@ using std::bool_constant;
                 throw;
             }
 #else
-            storage_type *p = nullptr;
             for (auto i = 0; i < size_; ++i) {
-
                 // construct value in memory of aligned storage
                 // using inplace operator new
-                p =reinterpret_cast<storage_type *>(new(elements_ + ((tail_ + i) % N)) T(rhs[(tail_ + i) % N]));
-                if (!p) {
-                    break;
-                }
+                new(elements_ + ((tail_ + i) % N)) T(rhs[(tail_ + i) % N]);
             }
-            if (!p) {
-                while(!empty()) {
-                    destroy(tail_, bool_constant<is_trivially_destructible_v<value_type>>{});
-                    tail_ = (tail_ + 1) % N;
-                    --size_;
-                }
-            }
-
 #endif
         }
         void move_impl(self_type& rhs, std::true_type) {
@@ -339,19 +326,8 @@ using std::bool_constant;
                 throw;
             }
 #else
-            storage_type *p = nullptr;
-            size_type i = 0;
-            for (; i < original_size; ++i) {
-                p =reinterpret_cast<storage_type *>(new(elements_ + ((original_tail + i) % N)) T(std::move(rhs[(original_tail + i) % N])));
-                if (!p) {
-                    break;
-                }
-            }
-            if (!p) {
-                for (size_type j = 0; j < i; ++j) {
-                    destroy((original_tail + j) % N, bool_constant<is_trivially_destructible_v<value_type>>{});
-                }
-                return;
+            for (size_type i = 0; i < original_size; ++i) {
+                new(elements_ + ((original_tail + i) % N)) T(std::move(rhs[(original_tail + i) % N]));
             }
 #endif
             tail_ = original_tail;
