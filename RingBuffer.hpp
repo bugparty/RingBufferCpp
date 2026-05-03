@@ -63,7 +63,7 @@ namespace buffers {
             [[nodiscard]] const_pointer operator->() const noexcept {
                 return &((*source_)[index_]);
             }
-            self_type& operator++() noexcept {
+            [[nodiscard]] self_type& operator++() noexcept {
                 ++count_;
                 if (count_ >= source_->size()) {
                     index_ = N;  // Set to sentinel value (out of valid range [0, N-1]) when reaching end
@@ -72,7 +72,7 @@ namespace buffers {
                 }
                 return *this;
             }
-            self_type operator++(int) noexcept {
+            [[nodiscard]] self_type operator++(int) noexcept {
                 auto result = *this;
                 ++(*this);
                 return result;
