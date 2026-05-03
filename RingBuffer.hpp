@@ -362,9 +362,9 @@ using std::bool_constant;
                 }
             }
 
-            std::swap(head_, rhs.head_);
-            std::swap(tail_, rhs.tail_);
             std::swap(size_, rhs.size_);
+            head_ = (tail_ + size_) % N;
+            rhs.head_ = (rhs.tail_ + rhs.size_) % N;
         }
         template<typename U>
         void push_back(U&& value, std::true_type) {
