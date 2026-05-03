@@ -343,21 +343,28 @@ using std::bool_constant;
         }
         void swap_impl(self_type& rhs, std::false_type) {
             if (this == &rhs) return;
-            self_type temp;
-            temp.move_impl(*this, std::false_type{});
-            try {
-                this->move_impl(rhs, std::false_type{});
-            } catch (...) {
-                this->move_impl(temp, std::false_type{});
-                throw;
+            
+            size_t min_size = std::min(size_, rhs.size_);
+            size_t i = 0;
+            for (; i < min_size; ++i) {
+                std::swap((*this)[(tail_ + i) % N], rhs[(rhs.tail_ + i) % N]);
             }
-            try {
-                rhs.move_impl(temp, std::false_type{});
-            } catch (...) {
-                rhs.move_impl(*this, std::false_type{});
-                this->move_impl(temp, std::false_type{});
-                throw;
+            
+            if (size_ > rhs.size_) {
+                for (; i < size_; ++i) {
+                    new(&rhs.elements_[(rhs.tail_ + i) % N]) T(std::move((*this)[(tail_ + i) % N]));
+                    destroy((tail_ + i) % N, bool_constant<is_trivially_destructible_v<value_type>>{});
+                }
+            } else if (rhs.size_ > size_) {
+                for (; i < rhs.size_; ++i) {
+                    new(&elements_[(tail_ + i) % N]) T(std::move(rhs[(rhs.tail_ + i) % N]));
+                    rhs.destroy((rhs.tail_ + i) % N, bool_constant<is_trivially_destructible_v<value_type>>{});
+                }
             }
+
+            std::swap(head_, rhs.head_);
+            std::swap(tail_, rhs.tail_);
+            std::swap(size_, rhs.size_);
         }
         template<typename U>
         void push_back(U&& value, std::true_type) {
