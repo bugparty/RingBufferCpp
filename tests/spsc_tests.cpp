@@ -522,6 +522,9 @@ TEST(SpscTest, ConcurrentOverwrite) {
                 EXPECT_GE(val, 0);
                 EXPECT_LT(val, count);
                 consumed.fetch_add(1, std::memory_order_relaxed);
+            } else {
+                // Yield to avoid live-lock when producer is overwriting faster than we can read
+                std::this_thread::yield();
             }
         }
     });

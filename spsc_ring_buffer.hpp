@@ -5,8 +5,8 @@
 // Head and tail are on separate cache lines to avoid false sharing.
 // Monotonic counters (no modular wraparound of indices) with % N for slot access.
 //
-#ifndef SPSC_RING_BUFFER_HPP
-#define SPSC_RING_BUFFER_HPP
+
+#pragma once
 
 #include <atomic>
 #include <cassert>
@@ -17,6 +17,7 @@
 #include <string>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <thread>
 #include <type_traits>
 #include <unistd.h>
 #include <utility>
@@ -24,7 +25,7 @@
 namespace buffers {
 
 // Ring buffer header stored in shared memory
-struct RingBufferHeader {
+struct ring_buffer_header {
     std::atomic<uint32_t> version{0};  // Changed to atomic for spin-wait sync
     uint32_t capacity{0};
     alignas(64) std::atomic<uint64_t> head{0};
@@ -32,49 +33,63 @@ struct RingBufferHeader {
     alignas(64) std::atomic<uint64_t> overflow_count{0};
 };
 
-// Ring buffer region: header + slots
+namespace detail {
+
+// Ring buffer region: header + sequence array + slots
+// The sequence array provides per-slot versioning to detect overwrites in push_overwrite mode.
 template<typename T, size_t N>
-struct RingBufferRegion {
-    RingBufferHeader header;
+struct ring_buffer_region {
+    ring_buffer_header header;
+    std::atomic<uint64_t> sequence[N];  // Per-slot sequence for overwrite detection
     typename std::aligned_storage<sizeof(T), alignof(T)>::type slots[N];
 };
 
+} // namespace detail
+
 // Heap storage policy (default)
 template<typename T, size_t N>
-class HeapStorage {
+class heap_storage {
 public:
-    using header_type = RingBufferHeader;
+    using header_type = ring_buffer_header;
     using element_type = typename std::aligned_storage<sizeof(T), alignof(T)>::type;
-    using region_type = RingBufferRegion<T, N>;
+    using region_type = detail::ring_buffer_region<T, N>;
+    using sequence_type = std::atomic<uint64_t>;
 
 private:
     region_type* region_ = nullptr;
 
 public:
-    HeapStorage() : region_(new region_type{}) {
-        region_->header.version.store(1, std::memory_order_relaxed);
+    heap_storage() : region_(new region_type{}) {
+        // Initialize sequence array to 0
+        for (size_t i = 0; i < N; ++i) {
+            new(&region_->sequence[i]) std::atomic<uint64_t>(0);
+        }
+        region_->header.version.store(1, std::memory_order_release);
         region_->header.capacity = N;
     }
 
-    ~HeapStorage() {
+    ~heap_storage() {
         delete region_;
     }
 
-    HeapStorage(HeapStorage const&) = delete;
-    HeapStorage& operator=(HeapStorage const&) = delete;
-    HeapStorage(HeapStorage&&) = delete;
-    HeapStorage& operator=(HeapStorage&&) = delete;
+    heap_storage(heap_storage const&) = delete;
+    heap_storage& operator=(heap_storage const&) = delete;
+    heap_storage(heap_storage&&) = delete;
+    heap_storage& operator=(heap_storage&&) = delete;
 
     header_type* header() noexcept { return &region_->header; }
     const header_type* header() const noexcept { return &region_->header; }
     element_type* slots() noexcept { return region_->slots; }
     const element_type* slots() const noexcept { return region_->slots; }
+    sequence_type* sequence() noexcept { return region_->sequence; }
+    const sequence_type* sequence() const noexcept { return region_->sequence; }
     bool valid() const noexcept { return region_ != nullptr; }
     bool is_creator() const noexcept { return true; }
+    static constexpr bool is_shared() noexcept { return false; }
 };
 
 // Shared memory open mode
-enum class ShmOpenMode {
+enum class shm_open_mode {
     create,           // Create new, fail if exists
     open,             // Open existing, fail if not found
     create_or_open    // Create if not exists, open if exists (default)
@@ -82,11 +97,12 @@ enum class ShmOpenMode {
 
 // Shared memory storage policy
 template<typename T, size_t N>
-class ShmStorage {
+class shm_storage {
 public:
-    using header_type = RingBufferHeader;
+    using header_type = ring_buffer_header;
     using element_type = typename std::aligned_storage<sizeof(T), alignof(T)>::type;
-    using region_type = RingBufferRegion<T, N>;
+    using region_type = detail::ring_buffer_region<T, N>;
+    using sequence_type = std::atomic<uint64_t>;
 
 private:
     std::string shm_name_;
@@ -95,25 +111,28 @@ private:
     bool is_creator_ = false;
 
 public:
-    explicit ShmStorage(const char* name,
-                       ShmOpenMode mode = ShmOpenMode::create_or_open);
-    ~ShmStorage();
+    explicit shm_storage(const char* name,
+                       shm_open_mode mode = shm_open_mode::create_or_open);
+    ~shm_storage();
 
-    ShmStorage(ShmStorage const&) = delete;
-    ShmStorage& operator=(ShmStorage const&) = delete;
-    ShmStorage(ShmStorage&&) = delete;
-    ShmStorage& operator=(ShmStorage&&) = delete;
+    shm_storage(shm_storage const&) = delete;
+    shm_storage& operator=(shm_storage const&) = delete;
+    shm_storage(shm_storage&&) = delete;
+    shm_storage& operator=(shm_storage&&) = delete;
 
     header_type* header() noexcept { return region_ ? &region_->header : nullptr; }
     const header_type* header() const noexcept { return region_ ? &region_->header : nullptr; }
     element_type* slots() noexcept { return region_ ? region_->slots : nullptr; }
     const element_type* slots() const noexcept { return region_ ? region_->slots : nullptr; }
+    sequence_type* sequence() noexcept { return region_ ? region_->sequence : nullptr; }
+    const sequence_type* sequence() const noexcept { return region_ ? region_->sequence : nullptr; }
     bool valid() const noexcept { return region_ != nullptr; }
     bool is_creator() const noexcept { return is_creator_; }
+    static constexpr bool is_shared() noexcept { return true; }
 };
 
 template<typename T, size_t N>
-ShmStorage<T, N>::ShmStorage(const char* name, ShmOpenMode mode)
+shm_storage<T, N>::shm_storage(const char* name, shm_open_mode mode)
     : shm_name_(name) {
 
     // Validate name
@@ -125,13 +144,13 @@ ShmStorage<T, N>::ShmStorage(const char* name, ShmOpenMode mode)
     bool try_exclusive_create = false;
 
     switch (mode) {
-        case ShmOpenMode::create:
+        case shm_open_mode::create:
             flags |= O_CREAT | O_EXCL;
             break;
-        case ShmOpenMode::open:
+        case shm_open_mode::open:
             // Only O_RDWR
             break;
-        case ShmOpenMode::create_or_open:
+        case shm_open_mode::create_or_open:
             // Try exclusive create first
             try_exclusive_create = true;
             break;
@@ -158,7 +177,7 @@ ShmStorage<T, N>::ShmStorage(const char* name, ShmOpenMode mode)
         }
 
         // For create mode, we are the creator
-        if (mode == ShmOpenMode::create) {
+        if (mode == shm_open_mode::create) {
             is_creator_ = true;
         }
     }
@@ -171,6 +190,25 @@ ShmStorage<T, N>::ShmStorage(const char* name, ShmOpenMode mode)
     if (is_creator_) {
         const size_t size = sizeof(region_type);
         if (ftruncate(fd_, static_cast<off_t>(size)) != 0) {
+            close(fd_);
+            fd_ = -1;
+            return;
+        }
+    } else {
+        // Non-creator: wait for creator to resize the shared memory
+        // The creator must ftruncate before we can safely mmap
+        struct stat st;
+        constexpr int max_retries = 100;  // ~100ms max wait
+        for (int i = 0; i < max_retries; ++i) {
+            if (fstat(fd_, &st) == 0 && st.st_size >= static_cast<off_t>(sizeof(region_type))) {
+                break;  // Creator has resized, proceed
+            }
+            // Brief sleep before retry (1ms)
+            usleep(1000);
+        }
+        // Final check before proceeding
+        if (fstat(fd_, &st) != 0 || st.st_size < static_cast<off_t>(sizeof(region_type))) {
+            // Creator failed to resize in time
             close(fd_);
             fd_ = -1;
             return;
@@ -191,9 +229,10 @@ ShmStorage<T, N>::ShmStorage(const char* name, ShmOpenMode mode)
     // Creator initializes header using memset + memory fence
     if (is_creator_) {
         std::memset(region_, 0, sizeof(region_type));
+        // Set capacity BEFORE signaling completion via version
+        region_->header.capacity = N;
         std::atomic_thread_fence(std::memory_order_release);
         region_->header.version.store(1, std::memory_order_release);
-        region_->header.capacity = N;
     } else {
         // Wait for creator to finish initialization
         // Spin until version is set (indicates creator finished)
@@ -204,7 +243,7 @@ ShmStorage<T, N>::ShmStorage(const char* name, ShmOpenMode mode)
 }
 
 template<typename T, size_t N>
-ShmStorage<T, N>::~ShmStorage() {
+shm_storage<T, N>::~shm_storage() {
     if (region_) {
         munmap(region_, sizeof(region_type));
         region_ = nullptr;
@@ -218,7 +257,7 @@ ShmStorage<T, N>::~ShmStorage() {
 template<
     typename T,
     size_t N,
-    template<typename, size_t> class StoragePolicy = HeapStorage
+    template<typename, size_t> class StoragePolicy = heap_storage
 >
 class spsc_ring_buffer {
     static_assert(N > 0, "SPSC ring buffer size must be greater than zero.");
@@ -234,12 +273,12 @@ public:
     using const_pointer = T const*;
     using size_type = size_t;
 
-    // Default constructor (for HeapStorage)
+    // Default constructor (for heap_storage)
     template<typename S = StoragePolicy<T, N>,
              typename = std::enable_if_t<std::is_default_constructible_v<S>>>
     spsc_ring_buffer() : storage_() {}
 
-    // Constructor with arguments (for ShmStorage)
+    // Constructor with arguments (for shm_storage)
     template<typename... Args>
     explicit spsc_ring_buffer(Args&&... args)
         : storage_(std::forward<Args>(args)...) {}
@@ -249,7 +288,13 @@ public:
     spsc_ring_buffer(spsc_ring_buffer&&) = delete;
     spsc_ring_buffer& operator=(spsc_ring_buffer&&) = delete;
 
-    ~spsc_ring_buffer() { clear(); }
+    ~spsc_ring_buffer() {
+        // Only call clear() for non-shared storage (heap/local memory)
+        // For shared storage, we must not reset head/tail as other processes may be using it
+        if (!storage_policy::is_shared()) {
+            clear();
+        }
+    }
 
     // Try to enqueue an element. Returns false if the buffer is full or invalid.
     template<typename U>
@@ -260,6 +305,7 @@ public:
 
         auto* header = storage_.header();
         auto* slots = storage_.slots();
+        auto* sequence = storage_.sequence();
 
         auto h = header->head.load(std::memory_order_relaxed);
         auto t = header->tail.load(std::memory_order_acquire);
@@ -269,7 +315,11 @@ public:
             return false;
         }
 
-        new(&slots[h % N]) T(std::forward<U>(value));
+        auto idx = h % N;
+        new(&slots[idx]) T(std::forward<U>(value));
+        // Set sequence to the new head value (which will be the value consumer's t+1 should match)
+        // After this store, consumer with t=h can verify sequence[idx] == t+1 == h+1
+        sequence[idx].store(h + 1, std::memory_order_release);
         header->head.store(h + 1, std::memory_order_release);
         return true;
     }
@@ -283,6 +333,7 @@ public:
 
         auto* header = storage_.header();
         auto* slots = storage_.slots();
+        auto* sequence = storage_.sequence();
 
         auto h = header->head.load(std::memory_order_relaxed);
         auto t = header->tail.load(std::memory_order_acquire);
@@ -291,25 +342,42 @@ public:
             // Buffer full, overwrite oldest element at t % N
             header->overflow_count.fetch_add(1, std::memory_order_relaxed);
 
-            // Advance tail first to prevent consumer from reading this slot
-            header->tail.store(t + 1, std::memory_order_release);
+            auto idx = t % N;
 
-            // Now safe to destroy/overwrite at the old position
+            // Signal overwrite by updating sequence FIRST, before touching the slot.
+            // The consumer will see sequence != t+1 and skip this position.
+            sequence[idx].store(h + 1, std::memory_order_release);
+
+            // Destroy the old element
             if constexpr (!std::is_trivially_destructible_v<T>) {
-                reinterpret_cast<T*>(&slots[t % N])->~T();
+                reinterpret_cast<T*>(&slots[idx])->~T();
             }
-            new(&slots[t % N]) T(std::forward<U>(value));
 
-            // Finally advance head
+            // Construct new element
+            new(&slots[idx]) T(std::forward<U>(value));
+
+            // Advance head
             header->head.store(h + 1, std::memory_order_release);
+
+            // Advance tail with CAS to maintain size invariant.
+            // Single-threaded: always succeeds (size stays at N).
+            // Concurrent: if consumer already advanced tail, CAS fails harmlessly
+            //   (the consumer handles the skip via sequence check in try_pop).
+            //   CAS prevents the tail-regression deadlock that a plain store causes.
+            auto expected_tail = t;
+            header->tail.compare_exchange_strong(expected_tail, t + 1,
+                std::memory_order_release, std::memory_order_relaxed);
         } else {
             // Buffer not full, normal push
-            new(&slots[h % N]) T(std::forward<U>(value));
+            auto idx = h % N;
+            new(&slots[idx]) T(std::forward<U>(value));
+            sequence[idx].store(h + 1, std::memory_order_release);
             header->head.store(h + 1, std::memory_order_release);
         }
     }
 
     // Try to dequeue an element. Returns false if the buffer is empty or invalid.
+    // When concurrent with push_overwrite, skips overwritten slots internally.
     bool try_pop(T& result) noexcept(std::is_nothrow_move_assignable<T>::value) {
         if (!storage_.valid()) {
             return false;
@@ -317,22 +385,47 @@ public:
 
         auto* header = storage_.header();
         auto* slots = storage_.slots();
+        auto* sequence = storage_.sequence();
 
-        auto t = header->tail.load(std::memory_order_acquire);  // Fixed: acquire to sync with push_overwrite's release
-        auto h = header->head.load(std::memory_order_acquire);
+        while (true) {
+            auto t = header->tail.load(std::memory_order_acquire);
+            auto h = header->head.load(std::memory_order_acquire);
 
-        if (t == h)
-            return false;
+            if (t == h)
+                return false;  // Buffer is empty
 
-        auto idx = t % N;
-        result = std::move(*reinterpret_cast<pointer>(&slots[idx]));
+            auto idx = t % N;
+            uint64_t expected_seq = t + 1;
+            uint64_t actual_seq = sequence[idx].load(std::memory_order_acquire);
 
-        if constexpr (!std::is_trivially_destructible_v<T>) {
-            reinterpret_cast<pointer>(&slots[idx])->~T();
+            if (actual_seq != expected_seq) {
+                // Slot was overwritten (actual_seq > expected_seq) or not yet
+                // written (shouldn't happen). Skip — the producer already
+                // destroyed the old element during overwrite, so just advance
+                // tail without reading or destructing.
+                header->tail.store(t + 1, std::memory_order_release);
+                continue;
+            }
+
+            // Sequence matches — slot should contain valid data for position t.
+            result = std::move(*reinterpret_cast<pointer>(&slots[idx]));
+
+            // Re-check sequence to detect concurrent overwrite during the read.
+            if (sequence[idx].load(std::memory_order_acquire) != expected_seq) {
+                // Producer overwrote this slot while we were reading.
+                // Don't destruct — the producer already did. Just skip.
+                header->tail.store(t + 1, std::memory_order_release);
+                continue;
+            }
+
+            // Read was valid. Destruct and advance tail.
+            if constexpr (!std::is_trivially_destructible_v<T>) {
+                reinterpret_cast<pointer>(&slots[idx])->~T();
+            }
+
+            header->tail.store(t + 1, std::memory_order_release);
+            return true;
         }
-
-        header->tail.store(t + 1, std::memory_order_release);
-        return true;
     }
 
     // Access the oldest element. UB if empty OR invalid.
@@ -399,7 +492,7 @@ public:
     [[nodiscard]] static constexpr size_type capacity() noexcept { return N; }
 
     void clear() noexcept {
-        // Guard against invalid storage (e.g., failed ShmStorage construction)
+        // Guard against invalid storage (e.g., failed shm_storage construction)
         if (!storage_.valid()) {
             return;
         }
@@ -455,6 +548,14 @@ private:
     storage_policy storage_;
 };
 
-} // namespace buffers
+// Backward-compatible type aliases (CamelCase -> snake_case)
+using RingBufferHeader = ring_buffer_header;
+template<typename T, size_t N>
+using RingBufferRegion = detail::ring_buffer_region<T, N>;
+template<typename T, size_t N>
+using HeapStorage = heap_storage<T, N>;
+template<typename T, size_t N>
+using ShmStorage = shm_storage<T, N>;
+using ShmOpenMode = shm_open_mode;
 
-#endif
+} // namespace buffers
