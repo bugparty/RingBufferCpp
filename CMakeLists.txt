@@ -44,4 +44,13 @@ if (RINGBUFFER_BUILD_TESTS)
     target_link_libraries(SpscRingBufferTest PRIVATE gtest gtest_main RingBuffer::RingBuffer Threads::Threads)
 
     gtest_discover_tests(SpscRingBufferTest)
+
+    # Shared memory cross-process tests
+    add_executable(SpscShmTest
+        tests/spsc_shm_tests.cpp
+    )
+    target_include_directories(SpscShmTest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    target_link_libraries(SpscShmTest PRIVATE gtest gtest_main RingBuffer::RingBuffer Threads::Threads rt)
+
+    gtest_discover_tests(SpscShmTest)
 endif()
