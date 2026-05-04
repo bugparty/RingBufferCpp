@@ -305,7 +305,7 @@ public:
         auto* header = storage_.header();
         auto* slots = storage_.slots();
 
-        auto t = header->tail.load(std::memory_order_relaxed);
+        auto t = header->tail.load(std::memory_order_acquire);  // Fixed: acquire to sync with push_overwrite's release
         auto h = header->head.load(std::memory_order_acquire);
 
         if (t == h)
@@ -323,20 +323,22 @@ public:
     }
 
     // Access the oldest element. UB if empty.
+    // WARNING: Not safe to call concurrently with push_overwrite()
     [[nodiscard]] reference front() noexcept {
         auto* header = storage_.header();
         auto* slots = storage_.slots();
-        return *reinterpret_cast<pointer>(&slots[header->tail.load(std::memory_order_relaxed) % N]);
+        return *reinterpret_cast<pointer>(&slots[header->tail.load(std::memory_order_acquire) % N]);
     }
     [[nodiscard]] const_reference front() const noexcept {
         return const_cast<self_type*>(this)->front();
     }
 
     // Access the newest element. UB if empty.
+    // WARNING: Not safe to call concurrently with push_overwrite()
     [[nodiscard]] reference back() noexcept {
         auto* header = storage_.header();
         auto* slots = storage_.slots();
-        return *reinterpret_cast<pointer>(&slots[(header->head.load(std::memory_order_relaxed) - 1) % N]);
+        return *reinterpret_cast<pointer>(&slots[(header->head.load(std::memory_order_acquire) - 1) % N]);
     }
     [[nodiscard]] const_reference back() const noexcept {
         return const_cast<self_type*>(this)->back();
