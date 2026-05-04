@@ -9,6 +9,7 @@
 #define SPSC_RING_BUFFER_HPP
 
 #include <atomic>
+#include <cassert>
 #include <cerrno>
 #include <cstdint>
 #include <cstring>
@@ -250,9 +251,13 @@ public:
 
     ~spsc_ring_buffer() { clear(); }
 
-    // Try to enqueue an element. Returns false if the buffer is full.
+    // Try to enqueue an element. Returns false if the buffer is full or invalid.
     template<typename U>
     bool try_push(U&& value) noexcept(std::is_nothrow_constructible<T, U&&>::value) {
+        if (!storage_.valid()) {
+            return false;
+        }
+
         auto* header = storage_.header();
         auto* slots = storage_.slots();
 
@@ -269,9 +274,13 @@ public:
         return true;
     }
 
-    // Overwrite mode: always succeeds, overwrites oldest if full
+    // Overwrite mode: always succeeds, overwrites oldest if full. No-op if invalid.
     template<typename U>
     void push_overwrite(U&& value) noexcept(std::is_nothrow_constructible<T, U&&>::value) {
+        if (!storage_.valid()) {
+            return;
+        }
+
         auto* header = storage_.header();
         auto* slots = storage_.slots();
 
@@ -300,8 +309,12 @@ public:
         }
     }
 
-    // Try to dequeue an element. Returns false if the buffer is empty.
+    // Try to dequeue an element. Returns false if the buffer is empty or invalid.
     bool try_pop(T& result) noexcept(std::is_nothrow_move_assignable<T>::value) {
+        if (!storage_.valid()) {
+            return false;
+        }
+
         auto* header = storage_.header();
         auto* slots = storage_.slots();
 
@@ -322,9 +335,12 @@ public:
         return true;
     }
 
-    // Access the oldest element. UB if empty.
+    // Access the oldest element. UB if empty OR invalid.
     // WARNING: Not safe to call concurrently with push_overwrite()
     [[nodiscard]] reference front() noexcept {
+        // UB if empty OR invalid
+        assert(storage_.valid() && "Cannot access invalid buffer");
+
         auto* header = storage_.header();
         auto* slots = storage_.slots();
         return *reinterpret_cast<pointer>(&slots[header->tail.load(std::memory_order_acquire) % N]);
@@ -333,9 +349,12 @@ public:
         return const_cast<self_type*>(this)->front();
     }
 
-    // Access the newest element. UB if empty.
+    // Access the newest element. UB if empty OR invalid.
     // WARNING: Not safe to call concurrently with push_overwrite()
     [[nodiscard]] reference back() noexcept {
+        // UB if empty OR invalid
+        assert(storage_.valid() && "Cannot access invalid buffer");
+
         auto* header = storage_.header();
         auto* slots = storage_.slots();
         return *reinterpret_cast<pointer>(&slots[(header->head.load(std::memory_order_acquire) - 1) % N]);
@@ -344,20 +363,34 @@ public:
         return const_cast<self_type*>(this)->back();
     }
 
+    // Returns true if the buffer is empty or invalid.
     [[nodiscard]] bool empty() const noexcept {
+        if (!storage_.valid()) {
+            return true;
+        }
+
         auto* header = storage_.header();
         return header->head.load(std::memory_order_acquire) ==
                header->tail.load(std::memory_order_acquire);
     }
 
+    // Returns true if the buffer is full, false if not full or invalid.
     [[nodiscard]] bool full() const noexcept {
+        if (!storage_.valid()) {
+            return false;
+        }
+
         auto* header = storage_.header();
         return header->head.load(std::memory_order_acquire) -
                header->tail.load(std::memory_order_acquire) >= N;
     }
 
-    // Snapshot of current element count.
+    // Snapshot of current element count. Returns 0 if invalid.
     [[nodiscard]] size_type size() const noexcept {
+        if (!storage_.valid()) {
+            return 0;
+        }
+
         auto* header = storage_.header();
         return header->head.load(std::memory_order_acquire) -
                header->tail.load(std::memory_order_acquire);
@@ -395,13 +428,21 @@ public:
         header->tail.store(0, std::memory_order_release);
     }
 
-    // Statistics
+    // Statistics. Returns 0 if invalid.
     [[nodiscard]] uint64_t overflow_count() const noexcept {
+        if (!storage_.valid()) {
+            return 0;
+        }
+
         auto* header = storage_.header();
         return header->overflow_count.load(std::memory_order_relaxed);
     }
 
     void reset_stats() noexcept {
+        if (!storage_.valid()) {
+            return;
+        }
+
         auto* header = storage_.header();
         header->overflow_count.store(0, std::memory_order_relaxed);
     }
