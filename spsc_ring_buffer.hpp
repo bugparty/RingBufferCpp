@@ -65,7 +65,9 @@ public:
     HeapStorage& operator=(HeapStorage&&) = delete;
 
     header_type* header() noexcept { return &region_->header; }
+    const header_type* header() const noexcept { return &region_->header; }
     element_type* slots() noexcept { return region_->slots; }
+    const element_type* slots() const noexcept { return region_->slots; }
     bool valid() const noexcept { return region_ != nullptr; }
     bool is_creator() const noexcept { return true; }
 };
@@ -102,7 +104,9 @@ public:
     ShmStorage& operator=(ShmStorage&&) = delete;
 
     header_type* header() noexcept { return region_ ? &region_->header : nullptr; }
+    const header_type* header() const noexcept { return region_ ? &region_->header : nullptr; }
     element_type* slots() noexcept { return region_ ? region_->slots : nullptr; }
+    const element_type* slots() const noexcept { return region_ ? region_->slots : nullptr; }
     bool valid() const noexcept { return region_ != nullptr; }
     bool is_creator() const noexcept { return is_creator_; }
 };
@@ -210,12 +214,16 @@ ShmStorage<T, N>::~ShmStorage() {
     }
 }
 
-template<typename T, size_t N>
+template<
+    typename T,
+    size_t N,
+    template<typename, size_t> class StoragePolicy = HeapStorage
+>
 class spsc_ring_buffer {
     static_assert(N > 0, "SPSC ring buffer size must be greater than zero.");
 
     using self_type = spsc_ring_buffer;
-    using storage_type = typename std::aligned_storage<sizeof(T), alignof(T)>::type;
+    using storage_policy = StoragePolicy<T, N>;
 
 public:
     using value_type = T;
@@ -225,7 +233,15 @@ public:
     using const_pointer = T const*;
     using size_type = size_t;
 
-    spsc_ring_buffer() noexcept = default;
+    // Default constructor (for HeapStorage)
+    template<typename S = StoragePolicy<T, N>,
+             typename = std::enable_if_t<std::is_default_constructible_v<S>>>
+    spsc_ring_buffer() : storage_() {}
+
+    // Constructor with arguments (for ShmStorage)
+    template<typename... Args>
+    explicit spsc_ring_buffer(Args&&... args)
+        : storage_(std::forward<Args>(args)...) {}
 
     spsc_ring_buffer(spsc_ring_buffer const&) = delete;
     spsc_ring_buffer& operator=(spsc_ring_buffer const&) = delete;
@@ -237,35 +253,80 @@ public:
     // Try to enqueue an element. Returns false if the buffer is full.
     template<typename U>
     bool try_push(U&& value) noexcept(std::is_nothrow_constructible<T, U&&>::value) {
-        auto h = head_.load(std::memory_order_relaxed);
-        auto t = tail_.load(std::memory_order_acquire);
+        auto* header = storage_.header();
+        auto* slots = storage_.slots();
 
-        if (h - t >= N)
+        auto h = header->head.load(std::memory_order_relaxed);
+        auto t = header->tail.load(std::memory_order_acquire);
+
+        if (h - t >= N) {
+            header->overflow_count.fetch_add(1, std::memory_order_relaxed);
             return false;
+        }
 
-        new(&elements_[h % N]) T(std::forward<U>(value));
-        head_.store(h + 1, std::memory_order_release);
+        new(&slots[h % N]) T(std::forward<U>(value));
+        header->head.store(h + 1, std::memory_order_release);
         return true;
+    }
+
+    // Overwrite mode: always succeeds, overwrites oldest if full
+    template<typename U>
+    void push_overwrite(U&& value) noexcept(std::is_nothrow_constructible<T, U&&>::value) {
+        auto* header = storage_.header();
+        auto* slots = storage_.slots();
+
+        auto h = header->head.load(std::memory_order_relaxed);
+        auto t = header->tail.load(std::memory_order_acquire);
+
+        if (h - t >= N) {
+            // Buffer full, overwrite oldest element at t % N
+            header->overflow_count.fetch_add(1, std::memory_order_relaxed);
+
+            // Advance tail first to prevent consumer from reading this slot
+            header->tail.store(t + 1, std::memory_order_release);
+
+            // Now safe to destroy/overwrite at the old position
+            if constexpr (!std::is_trivially_destructible_v<T>) {
+                reinterpret_cast<T*>(&slots[t % N])->~T();
+            }
+            new(&slots[t % N]) T(std::forward<U>(value));
+
+            // Finally advance head
+            header->head.store(h + 1, std::memory_order_release);
+        } else {
+            // Buffer not full, normal push
+            new(&slots[h % N]) T(std::forward<U>(value));
+            header->head.store(h + 1, std::memory_order_release);
+        }
     }
 
     // Try to dequeue an element. Returns false if the buffer is empty.
     bool try_pop(T& result) noexcept(std::is_nothrow_move_assignable<T>::value) {
-        auto t = tail_.load(std::memory_order_relaxed);
-        auto h = head_.load(std::memory_order_acquire);
+        auto* header = storage_.header();
+        auto* slots = storage_.slots();
+
+        auto t = header->tail.load(std::memory_order_relaxed);
+        auto h = header->head.load(std::memory_order_acquire);
 
         if (t == h)
             return false;
 
         auto idx = t % N;
-        result = std::move(*reinterpret_cast<pointer>(&elements_[idx]));
-        destroy(idx);
-        tail_.store(t + 1, std::memory_order_release);
+        result = std::move(*reinterpret_cast<pointer>(&slots[idx]));
+
+        if constexpr (!std::is_trivially_destructible_v<T>) {
+            reinterpret_cast<pointer>(&slots[idx])->~T();
+        }
+
+        header->tail.store(t + 1, std::memory_order_release);
         return true;
     }
 
     // Access the oldest element. UB if empty.
     [[nodiscard]] reference front() noexcept {
-        return *reinterpret_cast<pointer>(&elements_[tail_.load(std::memory_order_relaxed) % N]);
+        auto* header = storage_.header();
+        auto* slots = storage_.slots();
+        return *reinterpret_cast<pointer>(&slots[header->tail.load(std::memory_order_relaxed) % N]);
     }
     [[nodiscard]] const_reference front() const noexcept {
         return const_cast<self_type*>(this)->front();
@@ -273,49 +334,77 @@ public:
 
     // Access the newest element. UB if empty.
     [[nodiscard]] reference back() noexcept {
-        return *reinterpret_cast<pointer>(&elements_[(head_.load(std::memory_order_relaxed) - 1) % N]);
+        auto* header = storage_.header();
+        auto* slots = storage_.slots();
+        return *reinterpret_cast<pointer>(&slots[(header->head.load(std::memory_order_relaxed) - 1) % N]);
     }
     [[nodiscard]] const_reference back() const noexcept {
         return const_cast<self_type*>(this)->back();
     }
 
     [[nodiscard]] bool empty() const noexcept {
-        return head_.load(std::memory_order_acquire) == tail_.load(std::memory_order_acquire);
+        auto* header = storage_.header();
+        return header->head.load(std::memory_order_acquire) ==
+               header->tail.load(std::memory_order_acquire);
     }
 
     [[nodiscard]] bool full() const noexcept {
-        return head_.load(std::memory_order_acquire) - tail_.load(std::memory_order_acquire) >= N;
+        auto* header = storage_.header();
+        return header->head.load(std::memory_order_acquire) -
+               header->tail.load(std::memory_order_acquire) >= N;
     }
 
     // Snapshot of current element count.
     [[nodiscard]] size_type size() const noexcept {
-        return head_.load(std::memory_order_acquire) - tail_.load(std::memory_order_acquire);
+        auto* header = storage_.header();
+        return header->head.load(std::memory_order_acquire) -
+               header->tail.load(std::memory_order_acquire);
     }
 
     [[nodiscard]] static constexpr size_type capacity() noexcept { return N; }
 
     void clear() noexcept {
-        auto t = tail_.load(std::memory_order_relaxed);
-        auto h = head_.load(std::memory_order_acquire);
-        while (t != h) {
-            destroy(t % N);
-            ++t;
+        auto* header = storage_.header();
+        auto* slots = storage_.slots();
+
+        // First, advance tail to head to prevent consumer from accessing elements
+        auto h = header->head.load(std::memory_order_relaxed);
+        auto t = header->tail.load(std::memory_order_acquire);
+
+        if (t != h) {
+            header->tail.store(h, std::memory_order_release);
+
+            // Now safe to destroy elements (consumer won't access)
+            if constexpr (!std::is_trivially_destructible_v<T>) {
+                while (t != h) {
+                    reinterpret_cast<pointer>(&slots[t % N])->~T();
+                    ++t;
+                }
+            }
         }
-        tail_.store(t, std::memory_order_release);
+
+        // Finally reset both head and tail to 0
+        header->head.store(0, std::memory_order_release);
+        header->tail.store(0, std::memory_order_release);
     }
+
+    // Statistics
+    [[nodiscard]] uint64_t overflow_count() const noexcept {
+        auto* header = storage_.header();
+        return header->overflow_count.load(std::memory_order_relaxed);
+    }
+
+    void reset_stats() noexcept {
+        auto* header = storage_.header();
+        header->overflow_count.store(0, std::memory_order_relaxed);
+    }
+
+    // Storage status
+    bool valid() const noexcept { return storage_.valid(); }
+    bool is_creator() const noexcept { return storage_.is_creator(); }
 
 private:
-    void destroy(size_type index) noexcept {
-        destroy(index, std::is_trivially_destructible<T>{});
-    }
-    void destroy(size_type, std::true_type) noexcept {}
-    void destroy(size_type index, std::false_type) noexcept {
-        reinterpret_cast<pointer>(&elements_[index])->~T();
-    }
-
-    storage_type elements_[N]{};
-    alignas(64) std::atomic<size_type> head_{};
-    alignas(64) std::atomic<size_type> tail_{};
+    storage_policy storage_;
 };
 
 } // namespace buffers
