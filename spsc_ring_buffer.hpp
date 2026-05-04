@@ -9,16 +9,22 @@
 #define SPSC_RING_BUFFER_HPP
 
 #include <atomic>
+#include <cerrno>
 #include <cstdint>
 #include <cstring>
+#include <fcntl.h>
+#include <string>
+#include <sys/mman.h>
+#include <sys/stat.h>
 #include <type_traits>
+#include <unistd.h>
 #include <utility>
 
 namespace buffers {
 
 // Ring buffer header stored in shared memory
 struct RingBufferHeader {
-    uint32_t version{1};
+    std::atomic<uint32_t> version{0};  // Changed to atomic for spin-wait sync
     uint32_t capacity{0};
     alignas(64) std::atomic<uint64_t> head{0};
     alignas(64) std::atomic<uint64_t> tail{0};
@@ -45,7 +51,7 @@ private:
 
 public:
     HeapStorage() : region_(new region_type{}) {
-        region_->header.version = 1;
+        region_->header.version.store(1, std::memory_order_relaxed);
         region_->header.capacity = N;
     }
 
@@ -63,6 +69,146 @@ public:
     bool valid() const noexcept { return region_ != nullptr; }
     bool is_creator() const noexcept { return true; }
 };
+
+// Shared memory open mode
+enum class ShmOpenMode {
+    create,           // Create new, fail if exists
+    open,             // Open existing, fail if not found
+    create_or_open    // Create if not exists, open if exists (default)
+};
+
+// Shared memory storage policy
+template<typename T, size_t N>
+class ShmStorage {
+public:
+    using header_type = RingBufferHeader;
+    using element_type = typename std::aligned_storage<sizeof(T), alignof(T)>::type;
+    using region_type = RingBufferRegion<T, N>;
+
+private:
+    std::string shm_name_;
+    int fd_ = -1;
+    region_type* region_ = nullptr;
+    bool is_creator_ = false;
+
+public:
+    explicit ShmStorage(const char* name,
+                       ShmOpenMode mode = ShmOpenMode::create_or_open);
+    ~ShmStorage();
+
+    ShmStorage(ShmStorage const&) = delete;
+    ShmStorage& operator=(ShmStorage const&) = delete;
+    ShmStorage(ShmStorage&&) = delete;
+    ShmStorage& operator=(ShmStorage&&) = delete;
+
+    header_type* header() noexcept { return region_ ? &region_->header : nullptr; }
+    element_type* slots() noexcept { return region_ ? region_->slots : nullptr; }
+    bool valid() const noexcept { return region_ != nullptr; }
+    bool is_creator() const noexcept { return is_creator_; }
+};
+
+template<typename T, size_t N>
+ShmStorage<T, N>::ShmStorage(const char* name, ShmOpenMode mode)
+    : shm_name_(name) {
+
+    // Validate name
+    if (!name || name[0] != '/') {
+        return;
+    }
+
+    int flags = O_RDWR;
+    bool try_exclusive_create = false;
+
+    switch (mode) {
+        case ShmOpenMode::create:
+            flags |= O_CREAT | O_EXCL;
+            break;
+        case ShmOpenMode::open:
+            // Only O_RDWR
+            break;
+        case ShmOpenMode::create_or_open:
+            // Try exclusive create first
+            try_exclusive_create = true;
+            break;
+    }
+
+    if (try_exclusive_create) {
+        // Try to create exclusively
+        fd_ = shm_open(shm_name_.c_str(), O_CREAT | O_EXCL | O_RDWR, 0666);
+        if (fd_ >= 0) {
+            is_creator_ = true;
+        } else if (errno == EEXIST) {
+            // Already exists, just open it
+            fd_ = shm_open(shm_name_.c_str(), O_RDWR, 0666);
+            is_creator_ = false;
+        } else {
+            // Other error
+            return;
+        }
+    } else {
+        // Open with specified flags
+        fd_ = shm_open(shm_name_.c_str(), flags, 0666);
+        if (fd_ < 0) {
+            return;
+        }
+
+        // For create mode, we are the creator
+        if (mode == ShmOpenMode::create) {
+            is_creator_ = true;
+        }
+    }
+
+    if (fd_ < 0) {
+        return;
+    }
+
+    // Creator calls ftruncate
+    if (is_creator_) {
+        const size_t size = sizeof(region_type);
+        if (ftruncate(fd_, static_cast<off_t>(size)) != 0) {
+            close(fd_);
+            fd_ = -1;
+            return;
+        }
+    }
+
+    // Map to memory
+    void* mapped = mmap(nullptr, sizeof(region_type),
+                       PROT_READ | PROT_WRITE, MAP_SHARED, fd_, 0);
+    if (mapped == MAP_FAILED) {
+        close(fd_);
+        fd_ = -1;
+        return;
+    }
+
+    region_ = static_cast<region_type*>(mapped);
+
+    // Creator initializes header using memset + memory fence
+    if (is_creator_) {
+        std::memset(region_, 0, sizeof(region_type));
+        std::atomic_thread_fence(std::memory_order_release);
+        region_->header.version.store(1, std::memory_order_release);
+        region_->header.capacity = N;
+    } else {
+        // Wait for creator to finish initialization
+        // Spin until version is set (indicates creator finished)
+        while (region_->header.version.load(std::memory_order_acquire) == 0) {
+            // Busy wait - creator should finish quickly
+        }
+    }
+}
+
+template<typename T, size_t N>
+ShmStorage<T, N>::~ShmStorage() {
+    if (region_) {
+        munmap(region_, sizeof(region_type));
+        region_ = nullptr;
+    }
+    if (fd_ >= 0) {
+        close(fd_);
+        fd_ = -1;
+    }
+}
 
 template<typename T, size_t N>
 class spsc_ring_buffer {
