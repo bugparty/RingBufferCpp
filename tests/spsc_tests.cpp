@@ -384,3 +384,103 @@ TEST(SpscTest, FullCycleBoundary) {
     EXPECT_EQ(errors.load(), 0);
     EXPECT_TRUE(buf.empty());
 }
+
+// --- Overwrite mode tests ---
+
+TEST(SpscTest, OverwriteBasic) {
+    spsc_ring_buffer<int, 4> buf;
+
+    // Fill buffer
+    for (int i = 0; i < 4; ++i)
+        buf.push_overwrite(i);
+
+    EXPECT_TRUE(buf.full());
+    EXPECT_EQ(buf.size(), 4u);
+
+    // Overwrite should succeed
+    buf.push_overwrite(100);
+    EXPECT_EQ(buf.size(), 4u);
+    EXPECT_EQ(buf.overflow_count(), 1u);
+
+    // Oldest element (0) should be gone, newest should be 100
+    int val;
+    for (int i = 1; i < 4; ++i) {
+        ASSERT_TRUE(buf.try_pop(val));
+        EXPECT_EQ(val, i);
+    }
+    ASSERT_TRUE(buf.try_pop(val));
+    EXPECT_EQ(val, 100);
+}
+
+TEST(SpscTest, OverwriteMultiple) {
+    spsc_ring_buffer<int, 4> buf;
+
+    // Fill and overwrite multiple times
+    for (int i = 0; i < 10; ++i)
+        buf.push_overwrite(i);
+
+    EXPECT_EQ(buf.overflow_count(), 6u);
+    EXPECT_EQ(buf.size(), 4u);
+
+    // Should have last 4 elements: 6, 7, 8, 9
+    int val;
+    for (int i = 6; i < 10; ++i) {
+        ASSERT_TRUE(buf.try_pop(val));
+        EXPECT_EQ(val, i);
+    }
+    EXPECT_TRUE(buf.empty());
+}
+
+TEST(SpscTest, OverwriteNonTrivial) {
+    spsc_ring_buffer<std::string, 3> buf;
+
+    buf.push_overwrite("one");
+    buf.push_overwrite("two");
+    buf.push_overwrite("three");
+
+    // Overwrite should properly destruct old strings
+    buf.push_overwrite("four");
+    EXPECT_EQ(buf.overflow_count(), 1u);
+
+    std::string val;
+    ASSERT_TRUE(buf.try_pop(val));
+    EXPECT_EQ(val, "two");
+    ASSERT_TRUE(buf.try_pop(val));
+    EXPECT_EQ(val, "three");
+    ASSERT_TRUE(buf.try_pop(val));
+    EXPECT_EQ(val, "four");
+}
+
+TEST(SpscTest, ConcurrentOverwrite) {
+    spsc_ring_buffer<int, 16> buf;
+    constexpr int count = 100000;
+
+    std::atomic<int> consumed{0};
+    std::atomic<bool> producer_done{false};
+
+    std::thread producer([&buf, &producer_done]() {
+        for (int i = 0; i < count; ++i) {
+            buf.push_overwrite(i);
+        }
+        producer_done.store(true, std::memory_order_release);
+    });
+
+    std::thread consumer([&buf, &consumed, &producer_done, count]() {
+        int val;
+        // Keep consuming until producer is done and buffer is empty
+        while (!producer_done.load(std::memory_order_acquire) || !buf.empty()) {
+            if (buf.try_pop(val)) {
+                // Values received are within expected range [0, count)
+                EXPECT_GE(val, 0);
+                EXPECT_LT(val, count);
+                consumed.fetch_add(1, std::memory_order_relaxed);
+            }
+        }
+    });
+
+    producer.join();
+    consumer.join();
+
+    // With overwrite mode, some values were lost
+    EXPECT_GT(buf.overflow_count(), 0u);
+}
