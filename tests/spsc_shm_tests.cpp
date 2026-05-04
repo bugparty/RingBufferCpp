@@ -2,19 +2,28 @@
 #include "spsc_ring_buffer.hpp"
 #include <sys/wait.h>
 #include <unistd.h>
+#include <atomic>
+#include <string>
 
 using namespace buffers;
 
+// Helper function to generate unique shared memory names
+// Uses PID + counter to avoid collisions when running tests in parallel
+static std::string generate_unique_shm_name(const std::string& base_name) {
+    static std::atomic<int> counter{0};
+    return "/" + base_name + "_" + std::to_string(getpid()) + "_" + std::to_string(counter++);
+}
+
 // Basic shared memory creation test
 TEST(SpscShmTest, CreateAndOpen) {
-    const char* shm_name = "/test_ring_buffer_create";
+    std::string shm_name = generate_unique_shm_name("test_ring_buffer_create");
 
     // Clean up any existing shm
-    shm_unlink(shm_name);
+    shm_unlink(shm_name.c_str());
 
     // Create new shared memory buffer
     spsc_ring_buffer<int, 16, ShmStorage> writer(
-        shm_name, ShmOpenMode::create
+        shm_name.c_str(), ShmOpenMode::create
     );
 
     EXPECT_TRUE(writer.valid());
@@ -22,17 +31,17 @@ TEST(SpscShmTest, CreateAndOpen) {
     EXPECT_TRUE(writer.empty());
 
     // Clean up
-    shm_unlink(shm_name);
+    shm_unlink(shm_name.c_str());
 }
 
 TEST(SpscShmTest, OpenExisting) {
-    const char* shm_name = "/test_ring_buffer_open";
-    shm_unlink(shm_name);
+    std::string shm_name = generate_unique_shm_name("test_ring_buffer_open");
+    shm_unlink(shm_name.c_str());
 
     // Create
     {
         spsc_ring_buffer<int, 16, ShmStorage> writer(
-            shm_name, ShmOpenMode::create
+            shm_name.c_str(), ShmOpenMode::create
         );
         EXPECT_TRUE(writer.valid());
     }
@@ -40,18 +49,18 @@ TEST(SpscShmTest, OpenExisting) {
     // Open existing
     {
         spsc_ring_buffer<int, 16, ShmStorage> reader(
-            shm_name, ShmOpenMode::open
+            shm_name.c_str(), ShmOpenMode::open
         );
         EXPECT_TRUE(reader.valid());
         EXPECT_FALSE(reader.is_creator());
     }
 
-    shm_unlink(shm_name);
+    shm_unlink(shm_name.c_str());
 }
 
 TEST(SpscShmTest, CrossProcessCommunication) {
-    const char* shm_name = "/test_ring_buffer_ipc";
-    shm_unlink(shm_name);
+    std::string shm_name = generate_unique_shm_name("test_ring_buffer_ipc");
+    shm_unlink(shm_name.c_str());
 
     pid_t pid = fork();
     ASSERT_GE(pid, 0);
@@ -59,7 +68,7 @@ TEST(SpscShmTest, CrossProcessCommunication) {
     if (pid == 0) {
         // Child process: writer
         spsc_ring_buffer<int, 64, ShmStorage> writer(
-            shm_name, ShmOpenMode::create
+            shm_name.c_str(), ShmOpenMode::create
         );
 
         if (!writer.valid()) {
@@ -78,7 +87,7 @@ TEST(SpscShmTest, CrossProcessCommunication) {
         usleep(10000);  // Wait for writer to start
 
         spsc_ring_buffer<int, 64, ShmStorage> reader(
-            shm_name, ShmOpenMode::open
+            shm_name.c_str(), ShmOpenMode::open
         );
 
         ASSERT_TRUE(reader.valid());
@@ -103,12 +112,12 @@ TEST(SpscShmTest, CrossProcessCommunication) {
         EXPECT_EQ(WEXITSTATUS(status), 0);
     }
 
-    shm_unlink(shm_name);
+    shm_unlink(shm_name.c_str());
 }
 
 TEST(SpscShmTest, OverflowCountShared) {
-    const char* shm_name = "/test_ring_buffer_overflow";
-    shm_unlink(shm_name);
+    std::string shm_name = generate_unique_shm_name("test_ring_buffer_overflow");
+    shm_unlink(shm_name.c_str());
 
     pid_t pid = fork();
     ASSERT_GE(pid, 0);
@@ -116,7 +125,7 @@ TEST(SpscShmTest, OverflowCountShared) {
     if (pid == 0) {
         // Writer: overwrite mode
         spsc_ring_buffer<int, 4, ShmStorage> writer(
-            shm_name, ShmOpenMode::create
+            shm_name.c_str(), ShmOpenMode::create
         );
 
         for (int i = 0; i < 10; ++i) {
@@ -130,7 +139,7 @@ TEST(SpscShmTest, OverflowCountShared) {
         usleep(10000);
 
         spsc_ring_buffer<int, 4, ShmStorage> reader(
-            shm_name, ShmOpenMode::open
+            shm_name.c_str(), ShmOpenMode::open
         );
 
         ASSERT_TRUE(reader.valid());
@@ -143,7 +152,7 @@ TEST(SpscShmTest, OverflowCountShared) {
         EXPECT_EQ(reader.overflow_count(), 6u);
     }
 
-    shm_unlink(shm_name);
+    shm_unlink(shm_name.c_str());
 }
 
 // --- Error handling and safety tests ---
@@ -177,11 +186,11 @@ TEST(SpscShmTest, InvalidNameHandling) {
 
 TEST(SpscShmTest, OpenNonExistentSegment) {
     // Try to open a segment that doesn't exist
-    const char* shm_name = "/test_nonexistent_segment";
-    shm_unlink(shm_name);  // Ensure it doesn't exist
+    std::string shm_name = generate_unique_shm_name("test_nonexistent_segment");
+    shm_unlink(shm_name.c_str());  // Ensure it doesn't exist
 
     spsc_ring_buffer<int, 16, ShmStorage> reader(
-        shm_name, ShmOpenMode::open
+        shm_name.c_str(), ShmOpenMode::open
     );
 
     EXPECT_FALSE(reader.valid());
@@ -235,13 +244,13 @@ TEST(SpscShmTest, DestructorSafeWithInvalidBuffer) {
 }
 
 TEST(SpscShmTest, CreateExclusively) {
-    const char* shm_name = "/test_exclusive_create";
-    shm_unlink(shm_name);
+    std::string shm_name = generate_unique_shm_name("test_exclusive_create");
+    shm_unlink(shm_name.c_str());
 
     // First create should succeed
     {
         spsc_ring_buffer<int, 16, ShmStorage> first(
-            shm_name, ShmOpenMode::create
+            shm_name.c_str(), ShmOpenMode::create
         );
         EXPECT_TRUE(first.valid());
         EXPECT_TRUE(first.is_creator());
@@ -250,7 +259,7 @@ TEST(SpscShmTest, CreateExclusively) {
     // Second create should fail (segment already exists)
     {
         spsc_ring_buffer<int, 16, ShmStorage> second(
-            shm_name, ShmOpenMode::create
+            shm_name.c_str(), ShmOpenMode::create
         );
         EXPECT_FALSE(second.valid());  // O_EXCL should cause failure
         EXPECT_FALSE(second.is_creator());
@@ -260,17 +269,17 @@ TEST(SpscShmTest, CreateExclusively) {
         EXPECT_FALSE(second.try_push(1));
     }
 
-    shm_unlink(shm_name);
+    shm_unlink(shm_name.c_str());
 }
 
 TEST(SpscShmTest, CreateOrOpenIdempotent) {
-    const char* shm_name = "/test_create_or_open";
-    shm_unlink(shm_name);
+    std::string shm_name = generate_unique_shm_name("test_create_or_open");
+    shm_unlink(shm_name.c_str());
 
     // First call: creates the segment
     {
         spsc_ring_buffer<int, 16, ShmStorage> first(
-            shm_name, ShmOpenMode::create_or_open
+            shm_name.c_str(), ShmOpenMode::create_or_open
         );
         EXPECT_TRUE(first.valid());
         EXPECT_TRUE(first.is_creator());
@@ -279,7 +288,7 @@ TEST(SpscShmTest, CreateOrOpenIdempotent) {
     // Second call: opens existing segment (even though first instance was destroyed)
     {
         spsc_ring_buffer<int, 16, ShmStorage> second(
-            shm_name, ShmOpenMode::create_or_open
+            shm_name.c_str(), ShmOpenMode::create_or_open
         );
         EXPECT_TRUE(second.valid());
         // Second instance is NOT the creator (segment already exists)
@@ -294,5 +303,5 @@ TEST(SpscShmTest, CreateOrOpenIdempotent) {
         EXPECT_EQ(val, 42);
     }
 
-    shm_unlink(shm_name);
+    shm_unlink(shm_name.c_str());
 }
