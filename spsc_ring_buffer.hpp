@@ -364,6 +364,11 @@ public:
     [[nodiscard]] static constexpr size_type capacity() noexcept { return N; }
 
     void clear() noexcept {
+        // Guard against invalid storage (e.g., failed ShmStorage construction)
+        if (!storage_.valid()) {
+            return;
+        }
+
         auto* header = storage_.header();
         auto* slots = storage_.slots();
 
