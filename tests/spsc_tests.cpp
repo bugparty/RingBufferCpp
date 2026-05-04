@@ -135,16 +135,22 @@ TEST(SpscTest, ConcurrentSPSC) {
 
     std::thread producer([&buf]() {
         for (int i = 0; i < count; ++i) {
-            while (!buf.try_push(i))
-                ;
+            int attempts = 0;
+            while (!buf.try_push(i)) {
+                if (++attempts > 10000000) { ADD_FAILURE() << "Timeout"; break; }
+                std::this_thread::yield();
+            }
         }
     });
 
     std::thread consumer([&buf, &errors]() {
         for (int i = 0; i < count; ++i) {
             int val{};
-            while (!buf.try_pop(val))
-                ;
+            int attempts = 0;
+            while (!buf.try_pop(val)) {
+                if (++attempts > 10000000) { ADD_FAILURE() << "Timeout"; break; }
+                std::this_thread::yield();
+            }
             if (val != i) ++errors;
         }
     });
@@ -163,16 +169,22 @@ TEST(SpscTest, ConcurrentSmallBuffer) {
 
     std::thread producer([&buf]() {
         for (int i = 0; i < count; ++i) {
-            while (!buf.try_push(i))
-                ;
+            int attempts = 0;
+            while (!buf.try_push(i)) {
+                if (++attempts > 10000000) { ADD_FAILURE() << "Timeout"; break; }
+                std::this_thread::yield();
+            }
         }
     });
 
     std::thread consumer([&buf, &errors]() {
         for (int i = 0; i < count; ++i) {
             int val{};
-            while (!buf.try_pop(val))
-                ;
+            int attempts = 0;
+            while (!buf.try_pop(val)) {
+                if (++attempts > 10000000) { ADD_FAILURE() << "Timeout"; break; }
+                std::this_thread::yield();
+            }
             if (val != i) ++errors;
         }
     });
@@ -191,16 +203,22 @@ TEST(SpscTest, ConcurrentNonTrivial) {
 
     std::thread producer([&buf]() {
         for (int i = 0; i < count; ++i) {
-            while (!buf.try_push(std::to_string(i)))
-                ;
+            int attempts = 0;
+            while (!buf.try_push(std::to_string(i))) {
+                if (++attempts > 10000000) { ADD_FAILURE() << "Timeout"; break; }
+                std::this_thread::yield();
+            }
         }
     });
 
     std::thread consumer([&buf, &errors]() {
         for (int i = 0; i < count; ++i) {
             std::string val;
-            while (!buf.try_pop(val))
-                ;
+            int attempts = 0;
+            while (!buf.try_pop(val)) {
+                if (++attempts > 10000000) { ADD_FAILURE() << "Timeout"; break; }
+                std::this_thread::yield();
+            }
             if (val != std::to_string(i)) ++errors;
         }
     });
@@ -222,8 +240,11 @@ TEST(SpscTest, DelayedConsumer) {
 
     std::thread producer([&buf]() {
         for (int i = 0; i < count; ++i) {
-            while (!buf.try_push(i))
-                ;
+            int attempts = 0;
+            while (!buf.try_push(i)) {
+                if (++attempts > 10000000) { ADD_FAILURE() << "Timeout"; break; }
+                std::this_thread::yield();
+            }
         }
     });
 
@@ -231,8 +252,11 @@ TEST(SpscTest, DelayedConsumer) {
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
         for (int i = 0; i < count; ++i) {
             int val{};
-            while (!buf.try_pop(val))
-                ;
+            int attempts = 0;
+            while (!buf.try_pop(val)) {
+                if (++attempts > 10000000) { ADD_FAILURE() << "Timeout"; break; }
+                std::this_thread::yield();
+            }
             if (val != i) ++errors;
         }
     });
@@ -252,16 +276,22 @@ TEST(SpscTest, DelayedProducer) {
     std::thread producer([&buf]() {
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
         for (int i = 0; i < count; ++i) {
-            while (!buf.try_push(i))
-                ;
+            int attempts = 0;
+            while (!buf.try_push(i)) {
+                if (++attempts > 10000000) { ADD_FAILURE() << "Timeout"; break; }
+                std::this_thread::yield();
+            }
         }
     });
 
     std::thread consumer([&buf, &errors]() {
         for (int i = 0; i < count; ++i) {
             int val{};
-            while (!buf.try_pop(val))
-                ;
+            int attempts = 0;
+            while (!buf.try_pop(val)) {
+                if (++attempts > 10000000) { ADD_FAILURE() << "Timeout"; break; }
+                std::this_thread::yield();
+            }
             if (val != i) ++errors;
         }
     });
@@ -284,8 +314,11 @@ TEST(SpscTest, BurstProduction) {
         for (int b = 0; b < bursts; ++b) {
             int base = b * burst_size;
             for (int i = 0; i < burst_size; ++i) {
-                while (!buf.try_push(base + i))
-                    ;
+                int attempts = 0;
+                while (!buf.try_push(base + i)) {
+                    if (++attempts > 10000000) { ADD_FAILURE() << "Timeout"; break; }
+                    std::this_thread::yield();
+                }
             }
             if (b < bursts - 1)
                 std::this_thread::sleep_for(std::chrono::microseconds(100));
@@ -295,8 +328,11 @@ TEST(SpscTest, BurstProduction) {
     std::thread consumer([&buf, &errors, count]() {
         for (int i = 0; i < count; ++i) {
             int val{};
-            while (!buf.try_pop(val))
-                ;
+            int attempts = 0;
+            while (!buf.try_pop(val)) {
+                if (++attempts > 10000000) { ADD_FAILURE() << "Timeout"; break; }
+                std::this_thread::yield();
+            }
             if (val != i) ++errors;
         }
     });
@@ -327,16 +363,22 @@ TEST(SpscTest, MultiFieldStructIntegrity) {
             p.checksum = i ^ 0xDEADBEEF;
             p.timestamp = static_cast<long>(i) * 1000;
             p.payload = static_cast<double>(i) * 3.14;
-            while (!buf.try_push(std::move(p)))
-                ;
+            int attempts = 0;
+            while (!buf.try_push(std::move(p))) {
+                if (++attempts > 10000000) { ADD_FAILURE() << "Timeout"; break; }
+                std::this_thread::yield();
+            }
         }
     });
 
     std::thread consumer([&buf, &errors]() {
         for (int i = 0; i < count; ++i) {
             Packet val{};
-            while (!buf.try_pop(val))
-                ;
+            int attempts = 0;
+            while (!buf.try_pop(val)) {
+                if (++attempts > 10000000) { ADD_FAILURE() << "Timeout"; break; }
+                std::this_thread::yield();
+            }
             if (val.seq != i) { ++errors; continue; }
             if (val.checksum != (i ^ 0xDEADBEEF)) { ++errors; continue; }
             if (val.timestamp != static_cast<long>(i) * 1000) { ++errors; continue; }
@@ -359,8 +401,11 @@ TEST(SpscTest, FullCycleBoundary) {
     std::thread producer([&buf]() {
         for (int c = 0; c < cycles; ++c) {
             for (int i = 0; i < 8; ++i) {
-                while (!buf.try_push(c * 8 + i))
-                    ;
+                int attempts = 0;
+                while (!buf.try_push(c * 8 + i)) {
+                    if (++attempts > 10000000) { ADD_FAILURE() << "Timeout"; break; }
+                    std::this_thread::yield();
+                }
             }
             while (!buf.empty())
                 std::this_thread::yield();
@@ -371,8 +416,11 @@ TEST(SpscTest, FullCycleBoundary) {
         for (int c = 0; c < cycles; ++c) {
             for (int i = 0; i < 8; ++i) {
                 int val{};
-                while (!buf.try_pop(val))
-                    ;
+                int attempts = 0;
+                while (!buf.try_pop(val)) {
+                    if (++attempts > 10000000) { ADD_FAILURE() << "Timeout"; break; }
+                    std::this_thread::yield();
+                }
                 if (val != c * 8 + i) ++errors;
             }
         }
