@@ -9,11 +9,30 @@
 #define SPSC_RING_BUFFER_HPP
 
 #include <atomic>
+#include <cstdint>
 #include <cstring>
 #include <type_traits>
 #include <utility>
 
 namespace buffers {
+
+// Ring buffer header stored in shared memory
+template<typename T>
+struct RingBufferHeader {
+    uint32_t version{1};
+    uint32_t capacity{0};
+    alignas(64) std::atomic<uint64_t> head{0};
+    alignas(64) std::atomic<uint64_t> tail{0};
+    alignas(64) std::atomic<uint64_t> overflow_count{0};
+    char padding_[64 - sizeof(std::atomic<uint64_t>)];
+};
+
+// Ring buffer region: header + slots
+template<typename T, size_t N>
+struct RingBufferRegion {
+    RingBufferHeader<T> header;
+    typename std::aligned_storage<sizeof(T), alignof(T)>::type slots[N];
+};
 
 template<typename T, size_t N>
 class spsc_ring_buffer {
