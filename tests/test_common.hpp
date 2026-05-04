@@ -2,6 +2,6 @@
 
 #include <gtest/gtest.h>
 
-#include "RingBuffer.hpp"
+#include "ring_buffer.hpp"
 
 using namespace buffers;
