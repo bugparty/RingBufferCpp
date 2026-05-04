@@ -17,21 +17,51 @@
 namespace buffers {
 
 // Ring buffer header stored in shared memory
-template<typename T>
 struct RingBufferHeader {
     uint32_t version{1};
     uint32_t capacity{0};
     alignas(64) std::atomic<uint64_t> head{0};
     alignas(64) std::atomic<uint64_t> tail{0};
     alignas(64) std::atomic<uint64_t> overflow_count{0};
-    char padding_[64 - sizeof(std::atomic<uint64_t>)];
 };
 
 // Ring buffer region: header + slots
 template<typename T, size_t N>
 struct RingBufferRegion {
-    RingBufferHeader<T> header;
+    RingBufferHeader header;
     typename std::aligned_storage<sizeof(T), alignof(T)>::type slots[N];
+};
+
+// Heap storage policy (default)
+template<typename T, size_t N>
+class HeapStorage {
+public:
+    using header_type = RingBufferHeader;
+    using element_type = typename std::aligned_storage<sizeof(T), alignof(T)>::type;
+    using region_type = RingBufferRegion<T, N>;
+
+private:
+    region_type* region_ = nullptr;
+
+public:
+    HeapStorage() : region_(new region_type{}) {
+        region_->header.version = 1;
+        region_->header.capacity = N;
+    }
+
+    ~HeapStorage() {
+        delete region_;
+    }
+
+    HeapStorage(HeapStorage const&) = delete;
+    HeapStorage& operator=(HeapStorage const&) = delete;
+    HeapStorage(HeapStorage&&) = delete;
+    HeapStorage& operator=(HeapStorage&&) = delete;
+
+    header_type* header() noexcept { return &region_->header; }
+    element_type* slots() noexcept { return region_->slots; }
+    bool valid() const noexcept { return region_ != nullptr; }
+    bool is_creator() const noexcept { return true; }
 };
 
 template<typename T, size_t N>
