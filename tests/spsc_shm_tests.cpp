@@ -292,7 +292,8 @@ TEST(SpscShmTest, CreateOrOpenIdempotent) {
         );
         EXPECT_TRUE(second.valid());
         // Second instance is NOT the creator (segment already exists)
-        // Note: Due to destructor clearing the buffer, second instance sees empty buffer
+        // Note: Destructor skips clear() for shared storage, so buffer persists.
+        // Second instance is empty because first instance never pushed any data.
         EXPECT_FALSE(second.is_creator());
         EXPECT_TRUE(second.empty());
 

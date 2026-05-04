@@ -26,8 +26,9 @@ namespace buffers {
 
 // Ring buffer header stored in shared memory
 struct ring_buffer_header {
-    std::atomic<uint32_t> version{0};  // Changed to atomic for spin-wait sync
+    uint32_t schema_version{0};           // User-defined schema version for compatibility
     uint32_t capacity{0};
+    std::atomic<uint64_t> writer_pid{0};  // PID of the creator process (for debugging)
     alignas(64) std::atomic<uint64_t> head{0};
     alignas(64) std::atomic<uint64_t> tail{0};
     alignas(64) std::atomic<uint64_t> overflow_count{0};
@@ -59,13 +60,14 @@ private:
     region_type* region_ = nullptr;
 
 public:
-    heap_storage() : region_(new region_type{}) {
+    explicit heap_storage(uint32_t schema_version = 0) : region_(new region_type{}) {
         // Initialize sequence array to 0
         for (size_t i = 0; i < N; ++i) {
             new(&region_->sequence[i]) std::atomic<uint64_t>(0);
         }
-        region_->header.version.store(1, std::memory_order_release);
+        region_->header.schema_version = schema_version;
         region_->header.capacity = N;
+        region_->header.writer_pid.store(static_cast<uint64_t>(::getpid()), std::memory_order_relaxed);
     }
 
     ~heap_storage() {
@@ -86,6 +88,8 @@ public:
     bool valid() const noexcept { return region_ != nullptr; }
     bool is_creator() const noexcept { return true; }
     static constexpr bool is_shared() noexcept { return false; }
+    uint32_t schema_version() const noexcept { return region_->header.schema_version; }
+    bool is_compatible() const noexcept { return true; }  // Heap is always compatible
 };
 
 // Shared memory open mode
@@ -109,10 +113,18 @@ private:
     int fd_ = -1;
     region_type* region_ = nullptr;
     bool is_creator_ = false;
+    uint32_t schema_version_ = 0;
 
 public:
     explicit shm_storage(const char* name,
+                       uint32_t schema_version,
                        shm_open_mode mode = shm_open_mode::create_or_open);
+
+    // Overload for backward compatibility (schema_version defaults to 0)
+    explicit shm_storage(const char* name,
+                       shm_open_mode mode)
+        : shm_storage(name, 0, mode) {}
+
     ~shm_storage();
 
     shm_storage(shm_storage const&) = delete;
@@ -129,11 +141,15 @@ public:
     bool valid() const noexcept { return region_ != nullptr; }
     bool is_creator() const noexcept { return is_creator_; }
     static constexpr bool is_shared() noexcept { return true; }
+    uint32_t schema_version() const noexcept { return schema_version_; }
+    bool is_compatible() const noexcept {
+        return region_ && region_->header.schema_version == schema_version_;
+    }
 };
 
 template<typename T, size_t N>
-shm_storage<T, N>::shm_storage(const char* name, shm_open_mode mode)
-    : shm_name_(name) {
+shm_storage<T, N>::shm_storage(const char* name, uint32_t schema_version, shm_open_mode mode)
+    : shm_name_(name), schema_version_(schema_version) {
 
     // Validate name
     if (!name || name[0] != '/') {
@@ -229,15 +245,45 @@ shm_storage<T, N>::shm_storage(const char* name, shm_open_mode mode)
     // Creator initializes header using memset + memory fence
     if (is_creator_) {
         std::memset(region_, 0, sizeof(region_type));
-        // Set capacity BEFORE signaling completion via version
+        region_->header.schema_version = schema_version_;
         region_->header.capacity = N;
+        region_->header.writer_pid.store(static_cast<uint64_t>(::getpid()), std::memory_order_relaxed);
+        // Initialize sequence array to 0
+        for (size_t i = 0; i < N; ++i) {
+            new(&region_->sequence[i]) std::atomic<uint64_t>(0);
+        }
         std::atomic_thread_fence(std::memory_order_release);
-        region_->header.version.store(1, std::memory_order_release);
     } else {
         // Wait for creator to finish initialization
-        // Spin until version is set (indicates creator finished)
-        while (region_->header.version.load(std::memory_order_acquire) == 0) {
-            // Busy wait - creator should finish quickly
+        // Spin until capacity is set (indicates creator finished)
+        // Bounded wait to prevent hanging if creator is unresponsive
+        constexpr int max_retries = 100;  // ~100ms max wait
+        int retries = 0;
+        while (region_->header.capacity == 0 && retries < max_retries) {
+            std::this_thread::yield();
+            usleep(1000);  // 1ms sleep
+            ++retries;
+        }
+
+        // Check if initialization completed
+        if (region_->header.capacity == 0) {
+            // Creator failed to initialize in time
+            munmap(region_, sizeof(region_type));
+            region_ = nullptr;
+            close(fd_);
+            fd_ = -1;
+            return;
+        }
+        std::atomic_thread_fence(std::memory_order_acquire);
+
+        // Verify schema version compatibility
+        if (region_->header.schema_version != schema_version_) {
+            // Schema mismatch - close and fail
+            munmap(region_, sizeof(region_type));
+            region_ = nullptr;
+            close(fd_);
+            fd_ = -1;
+            return;
         }
     }
 }
@@ -277,6 +323,11 @@ public:
     template<typename S = StoragePolicy<T, N>,
              typename = std::enable_if_t<std::is_default_constructible_v<S>>>
     spsc_ring_buffer() : storage_() {}
+
+    // Constructor with schema version (for heap_storage with version)
+    template<typename S = StoragePolicy<T, N>,
+             typename = std::enable_if_t<std::is_default_constructible_v<S>>>
+    explicit spsc_ring_buffer(uint32_t schema_version) : storage_(schema_version) {}
 
     // Constructor with arguments (for shm_storage)
     template<typename... Args>
@@ -543,6 +594,8 @@ public:
     // Storage status
     bool valid() const noexcept { return storage_.valid(); }
     bool is_creator() const noexcept { return storage_.is_creator(); }
+    uint32_t schema_version() const noexcept { return storage_.schema_version(); }
+    bool is_compatible() const noexcept { return storage_.is_compatible(); }
 
 private:
     storage_policy storage_;
