@@ -34,4 +34,14 @@ if (RINGBUFFER_BUILD_TESTS)
 
     include(GoogleTest)
     gtest_discover_tests(RingBufferTest)
+
+    find_package(Threads REQUIRED)
+
+    add_executable(SpscRingBufferTest
+        tests/spsc_tests.cpp
+    )
+    target_include_directories(SpscRingBufferTest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    target_link_libraries(SpscRingBufferTest PRIVATE gtest gtest_main RingBuffer::RingBuffer Threads::Threads)
+
+    gtest_discover_tests(SpscRingBufferTest)
 endif()
