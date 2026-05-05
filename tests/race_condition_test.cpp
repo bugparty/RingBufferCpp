@@ -67,6 +67,16 @@ TEST(SpscShmRaceTest, OpenerReadsUninitializedSequence) {
     creator_thread.join();
     opener_thread.join();
 
+    // Verify that both threads completed their work
+    EXPECT_TRUE(opener_passed_wait.load());
+    EXPECT_TRUE(creator_initialized.load());
+
+    // The reader should be valid after creator initialized
+    // If race occurred, reader might have read uninitialized sequence
+    // A correct implementation should handle this gracefully
+    // Note: In non-sanitized builds, this tests normal behavior
+    // TSAN builds will detect any actual data races
+
     shm_unlink(shm_name.c_str());
 }
 
@@ -154,14 +164,25 @@ TEST(SpscShmRaceTest, CapacitySetBeforeSequenceInit) {
     creator.join();
     opener.join();
 
-    // Note: This test demonstrates the race exists
-    // In TSAN builds, this should trigger a data race warning
+    // Verify both threads completed
+    EXPECT_TRUE(opener_finished.load());
+
+    // In a correct implementation, the reader should either:
+    // 1. Be valid and work correctly (if sequence was initialized in time)
+    // 2. Be invalid (if race was detected and handled)
+    // If race_detected is false and reader was valid, that indicates
+    // the implementation handled the race condition gracefully
+    // Note: TSAN builds will detect the actual data race if it occurs
 
     shm_unlink(shm_name.c_str());
 }
 
 // Test with TSAN to detect the actual data race
 TEST(SpscShmRaceTest, DetectRaceWithSanitizer) {
+#if !defined(__SANITIZE_THREAD__) && !defined(THREAD_SANITIZER)
+    GTEST_SKIP() << "Test only runs with ThreadSanitizer enabled";
+#endif
+
     std::string shm_name = generate_unique_shm_name("tsan_race_test");
     shm_unlink(shm_name.c_str());
 
