@@ -408,14 +408,12 @@ public:
 
             // Signal overwrite by updating sequence FIRST, before touching the slot.
             // The consumer will see sequence != t+1 and skip this position.
+            // The consumer is responsible for destroying the overwritten element
+            // when it detects the sequence mismatch, preventing a race where
+            // the producer destroys while the consumer is still reading.
             sequence[idx].store(h + 1, std::memory_order_release);
 
-            // Destroy the old element
-            if constexpr (!std::is_trivially_destructible_v<T>) {
-                reinterpret_cast<T*>(&slots[idx])->~T();
-            }
-
-            // Construct new element
+            // Construct new element (placement new overwrites the old storage)
             new(&slots[idx]) T(std::forward<U>(value));
 
             // Advance head
@@ -462,9 +460,12 @@ public:
 
             if (actual_seq != expected_seq) {
                 // Slot was overwritten (actual_seq > expected_seq) or not yet
-                // written (shouldn't happen). Skip — the producer already
-                // destroyed the old element during overwrite, so just advance
-                // tail without reading or destructing.
+                // written (shouldn't happen). The producer already constructed
+                // a new element in this slot, so we must destroy the old element
+                // we were expecting before advancing.
+                if constexpr (!std::is_trivially_destructible_v<T>) {
+                    reinterpret_cast<pointer>(&slots[idx])->~T();
+                }
                 header->tail.store(t + 1, std::memory_order_release);
                 continue;
             }
@@ -475,7 +476,11 @@ public:
             // Re-check sequence to detect concurrent overwrite during the read.
             if (sequence[idx].load(std::memory_order_acquire) != expected_seq) {
                 // Producer overwrote this slot while we were reading.
-                // Don't destruct — the producer already did. Just skip.
+                // The producer constructed a new element, so we must destroy
+                // the element we just read before skipping.
+                if constexpr (!std::is_trivially_destructible_v<T>) {
+                    reinterpret_cast<pointer>(&slots[idx])->~T();
+                }
                 header->tail.store(t + 1, std::memory_order_release);
                 continue;
             }
