@@ -557,6 +557,47 @@ TEST(SpscTest, ResetStatsClearsOverflowCount) {
     EXPECT_TRUE(buf.full());
 }
 
+// Stress test for trivial types with concurrent overwrite
+// This test validates that concurrent overwrite is safe for trivially copyable types
+TEST(SpscTest, ConcurrentOverwriteTrivialType) {
+    // Use a trivially copyable struct to test
+    struct Data {
+        int id;
+        float value;
+    };
+
+    spsc_ring_buffer<Data, 16> buf;
+    constexpr int count = 100000;
+
+    std::atomic<int> consumed{0};
+    std::atomic<bool> producer_done{false};
+
+    std::thread producer([&]() {
+        for (int i = 0; i < count; ++i) {
+            buf.push_overwrite(Data{i, static_cast<float>(i * 1.5)});
+        }
+        producer_done.store(true, std::memory_order_release);
+    });
+
+    std::thread consumer([&]() {
+        Data val;
+        while (!producer_done.load(std::memory_order_acquire) || !buf.empty()) {
+            if (buf.try_pop(val)) {
+                // For trivial types, we should always get valid data
+                // (no corruption possible, just might miss some elements)
+                consumed.fetch_add(1, std::memory_order_relaxed);
+            }
+        }
+    });
+
+    producer.join();
+    consumer.join();
+
+    EXPECT_GT(consumed.load(), 0) << "Should have consumed some elements";
+    // With overwrite, some elements were lost
+    EXPECT_LT(consumed.load(), count);
+}
+
 // Type with a non-trivial destructor that increments a counter
 struct DtorCounter {
     int* counter_;

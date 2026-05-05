@@ -9,14 +9,6 @@ else()
     set(CMAKE_CXX_STANDARD 17)
 endif()
 
-# ThreadSanitizer support
-option(ENABLE_TSAN "Enable ThreadSanitizer" OFF)
-if(ENABLE_TSAN)
-    message(STATUS "ThreadSanitizer enabled")
-    add_compile_options(-fsanitize=thread -g -O1)
-    add_link_options(-fsanitize=thread)
-endif()
-
 add_library(RingBuffer INTERFACE)
 add_library(RingBuffer::RingBuffer ALIAS RingBuffer)
 target_include_directories(RingBuffer INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
@@ -38,6 +30,8 @@ if (RINGBUFFER_BUILD_TESTS)
         tests/swap_exception_test.cpp
     )
     target_include_directories(RingBufferTest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    target_compile_options(RingBufferTest PRIVATE -fsanitize=thread -g -O1)
+    target_link_options(RingBufferTest PRIVATE -fsanitize=thread)
     target_link_libraries(RingBufferTest PRIVATE gtest gtest_main RingBuffer::RingBuffer)
 
     include(GoogleTest)
@@ -49,6 +43,8 @@ if (RINGBUFFER_BUILD_TESTS)
         tests/spsc_tests.cpp
     )
     target_include_directories(SpscRingBufferTest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    target_compile_options(SpscRingBufferTest PRIVATE -fsanitize=thread -g -O1)
+    target_link_options(SpscRingBufferTest PRIVATE -fsanitize=thread)
     target_link_libraries(SpscRingBufferTest PRIVATE gtest gtest_main RingBuffer::RingBuffer Threads::Threads)
 
     gtest_discover_tests(SpscRingBufferTest)
@@ -58,6 +54,8 @@ if (RINGBUFFER_BUILD_TESTS)
         tests/spsc_shm_tests.cpp
     )
     target_include_directories(SpscShmTest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    target_compile_options(SpscShmTest PRIVATE -fsanitize=thread -g -O1)
+    target_link_options(SpscShmTest PRIVATE -fsanitize=thread)
     target_link_libraries(SpscShmTest PRIVATE gtest gtest_main RingBuffer::RingBuffer Threads::Threads rt)
 
     gtest_discover_tests(SpscShmTest)
@@ -67,6 +65,8 @@ if (RINGBUFFER_BUILD_TESTS)
         tests/race_condition_test.cpp
     )
     target_include_directories(SpscRaceTest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    target_compile_options(SpscRaceTest PRIVATE -fsanitize=thread -g -O1)
+    target_link_options(SpscRaceTest PRIVATE -fsanitize=thread)
     target_link_libraries(SpscRaceTest PRIVATE gtest gtest_main RingBuffer::RingBuffer Threads::Threads rt)
 
     gtest_discover_tests(SpscRaceTest)
@@ -76,6 +76,8 @@ if (RINGBUFFER_BUILD_TESTS)
         tests/race_simple_test.cpp
     )
     target_include_directories(SpscRaceSimpleTest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    target_compile_options(SpscRaceSimpleTest PRIVATE -fsanitize=thread -g -O1)
+    target_link_options(SpscRaceSimpleTest PRIVATE -fsanitize=thread)
     target_link_libraries(SpscRaceSimpleTest PRIVATE gtest gtest_main RingBuffer::RingBuffer Threads::Threads rt)
 
     gtest_discover_tests(SpscRaceSimpleTest)
