@@ -490,12 +490,51 @@ public:
         }
     }
 
+    // Access the oldest element. UB if empty. Returns nullptr if invalid.
+    // WARNING: Not safe to call concurrently with push_overwrite()
+    [[nodiscard]] pointer front_ptr() noexcept {
+        if (!storage_.valid()) {
+            return nullptr;
+        }
+
+        auto* header = storage_.header();
+        auto* slots = storage_.slots();
+        auto t = header->tail.load(std::memory_order_acquire);
+        auto h = header->head.load(std::memory_order_acquire);
+        if (t == h) {
+            return nullptr;  // Empty
+        }
+        return reinterpret_cast<pointer>(&slots[t % N]);
+    }
+    [[nodiscard]] const_pointer front_ptr() const noexcept {
+        return const_cast<self_type*>(this)->front_ptr();
+    }
+
+    // Access the newest element. UB if empty. Returns nullptr if invalid.
+    // WARNING: Not safe to call concurrently with push_overwrite()
+    [[nodiscard]] pointer back_ptr() noexcept {
+        if (!storage_.valid()) {
+            return nullptr;
+        }
+
+        auto* header = storage_.header();
+        auto* slots = storage_.slots();
+        auto h = header->head.load(std::memory_order_acquire);
+        auto t = header->tail.load(std::memory_order_acquire);
+        if (t == h) {
+            return nullptr;  // Empty
+        }
+        return reinterpret_cast<pointer>(&slots[(h - 1) % N]);
+    }
+    [[nodiscard]] const_pointer back_ptr() const noexcept {
+        return const_cast<self_type*>(this)->back_ptr();
+    }
+
     // Access the oldest element. UB if empty OR invalid.
     // WARNING: Not safe to call concurrently with push_overwrite()
+    // Prefer front_ptr() for safe access with validity check.
     [[nodiscard]] reference front() noexcept {
-        // UB if empty OR invalid
         assert(storage_.valid() && "Cannot access invalid buffer");
-
         auto* header = storage_.header();
         auto* slots = storage_.slots();
         return *reinterpret_cast<pointer>(&slots[header->tail.load(std::memory_order_acquire) % N]);
@@ -506,10 +545,9 @@ public:
 
     // Access the newest element. UB if empty OR invalid.
     // WARNING: Not safe to call concurrently with push_overwrite()
+    // Prefer back_ptr() for safe access with validity check.
     [[nodiscard]] reference back() noexcept {
-        // UB if empty OR invalid
         assert(storage_.valid() && "Cannot access invalid buffer");
-
         auto* header = storage_.header();
         auto* slots = storage_.slots();
         return *reinterpret_cast<pointer>(&slots[(header->head.load(std::memory_order_acquire) - 1) % N]);
