@@ -276,6 +276,16 @@ shm_storage<T, N>::shm_storage(const char* name, uint32_t schema_version, shm_op
         }
         std::atomic_thread_fence(std::memory_order_acquire);
 
+        // Verify capacity matches expected size
+        if (region_->header.capacity != N) {
+            // Capacity mismatch - unmap and fail
+            munmap(region_, sizeof(region_type));
+            region_ = nullptr;
+            close(fd_);
+            fd_ = -1;
+            return;
+        }
+
         // Verify schema version compatibility
         if (region_->header.schema_version != schema_version_) {
             // Schema mismatch - close and fail
