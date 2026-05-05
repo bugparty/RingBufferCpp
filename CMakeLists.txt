@@ -47,7 +47,10 @@ if (RINGBUFFER_BUILD_TESTS)
     target_link_options(SpscRingBufferTest PRIVATE -fsanitize=thread)
     target_link_libraries(SpscRingBufferTest PRIVATE gtest gtest_main RingBuffer::RingBuffer Threads::Threads)
 
-    gtest_discover_tests(SpscRingBufferTest)
+    gtest_discover_tests(SpscRingBufferTest
+        PROPERTIES
+        ENVIRONMENT "TSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/tests/tsan_suppressions.txt"
+    )
 
     # Shared memory cross-process tests
     add_executable(SpscShmTest

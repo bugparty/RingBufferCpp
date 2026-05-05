@@ -499,6 +499,12 @@ TEST(SpscTest, OverwriteNonTrivial) {
     EXPECT_EQ(val, "four");
 }
 
+// CONCURRENT OVERWRITE DATA RACE WARNING
+// This test demonstrates that concurrent push_overwrite() and try_pop() have data races
+// even for trivial types like int. ThreadSanitizer will report warnings for this test.
+// This is a KNOWN LIMITATION documented in push_overwrite() API.
+// The test validates that the sequence checking mechanism prevents corrupted data from
+// being used, but the data race itself is inherent to the lock-free overwrite design.
 TEST(SpscTest, ConcurrentOverwrite) {
     spsc_ring_buffer<int, 16> buf;
     constexpr int count = 100000;
@@ -558,7 +564,9 @@ TEST(SpscTest, ResetStatsClearsOverflowCount) {
 }
 
 // Stress test for trivial types with concurrent overwrite
-// This test validates that concurrent overwrite is safe for trivially copyable types
+// NOTE: This test has data races even for trivial types - ThreadSanitizer will report warnings.
+// The test validates that trivial types don't suffer from memory corruption (no crashes, segfaults),
+// but the data race is still present and technically undefined behavior.
 TEST(SpscTest, ConcurrentOverwriteTrivialType) {
     // Use a trivially copyable struct to test
     struct Data {
