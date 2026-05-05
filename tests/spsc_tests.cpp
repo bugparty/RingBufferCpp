@@ -535,3 +535,24 @@ TEST(SpscTest, ConcurrentOverwrite) {
     // With overwrite mode, some values were lost
     EXPECT_GT(buf.overflow_count(), 0u);
 }
+
+TEST(SpscTest, ResetStatsClearsOverflowCount) {
+    spsc_ring_buffer<int, 4> buf;
+
+    // Fill buffer completely
+    for (int i = 0; i < 4; ++i)
+        buf.push_overwrite(i);
+
+    // Trigger overflows
+    buf.push_overwrite(100);
+    buf.push_overwrite(200);
+    EXPECT_GT(buf.overflow_count(), 0u);
+
+    // Reset stats
+    buf.reset_stats();
+    EXPECT_EQ(buf.overflow_count(), 0u);
+
+    // Buffer should still be functional
+    EXPECT_EQ(buf.size(), 4u);
+    EXPECT_TRUE(buf.full());
+}
