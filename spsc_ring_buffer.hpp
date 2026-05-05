@@ -242,9 +242,17 @@ shm_storage<T, N>::shm_storage(const char* name, uint32_t schema_version, shm_op
 
     region_ = static_cast<region_type*>(mapped);
 
-    // Creator initializes header using memset + memory fence
+    // Creator initializes header by constructing atomic objects
     if (is_creator_) {
-        std::memset(region_, 0, sizeof(region_type));
+        // Static_assert: shared memory atomics must be trivially destructible
+        // since we placement-new over them without explicit destruction.
+        static_assert(std::is_trivially_destructible_v<detail::ring_buffer_header>,
+                      "ring_buffer_header must be trivially destructible for shared memory");
+        static_assert(std::is_trivially_destructible_v<std::atomic<uint64_t>>,
+                      "std::atomic<uint64_t> must be trivially destructible for shared memory");
+
+        // Construct the header with placement new to start atomic object lifetimes
+        new(&region_->header) detail::ring_buffer_header();
         region_->header.schema_version = schema_version_;
         region_->header.writer_pid.store(static_cast<uint64_t>(::getpid()), std::memory_order_relaxed);
         // Initialize sequence array to 0
@@ -461,11 +469,8 @@ public:
             if (actual_seq != expected_seq) {
                 // Slot was overwritten (actual_seq > expected_seq) or not yet
                 // written (shouldn't happen). The producer already constructed
-                // a new element in this slot, so we must destroy the old element
-                // we were expecting before advancing.
-                if constexpr (!std::is_trivially_destructible_v<T>) {
-                    reinterpret_cast<pointer>(&slots[idx])->~T();
-                }
+                // a new element in this slot (overwriting the old one), so we
+                // must NOT destroy it. Just advance tail to skip this position.
                 header->tail.store(t + 1, std::memory_order_release);
                 continue;
             }
@@ -476,11 +481,8 @@ public:
             // Re-check sequence to detect concurrent overwrite during the read.
             if (sequence[idx].load(std::memory_order_acquire) != expected_seq) {
                 // Producer overwrote this slot while we were reading.
-                // The producer constructed a new element, so we must destroy
-                // the element we just read before skipping.
-                if constexpr (!std::is_trivially_destructible_v<T>) {
-                    reinterpret_cast<pointer>(&slots[idx])->~T();
-                }
+                // We already moved out the old value (line 479), and the producer
+                // constructed a new element. Skip destruction and advance tail.
                 header->tail.store(t + 1, std::memory_order_release);
                 continue;
             }
