@@ -306,3 +306,44 @@ TEST(SpscShmTest, CreateOrOpenIdempotent) {
 
     shm_unlink(shm_name.c_str());
 }
+
+TEST(SpscShmTest, SchemaVersionMismatch) {
+    std::string shm_name = generate_unique_shm_name("test_schema_mismatch");
+    shm_unlink(shm_name.c_str());
+
+    pid_t pid = fork();
+    ASSERT_GE(pid, 0);
+
+    if (pid == 0) {
+        // Child: create with schema version 1
+        spsc_ring_buffer<int, 16, ShmStorage> writer(
+            shm_name.c_str(), 1, ShmOpenMode::create
+        );
+        if (!writer.valid()) exit(1);
+        writer.try_push(42);
+        sleep(1);  // Keep alive so parent can try to open
+        exit(0);
+    } else {
+        // Parent: wait for child to create, then try to open with wrong version
+        usleep(50000);  // 50ms
+
+        spsc_ring_buffer<int, 16, ShmStorage> reader(
+            shm_name.c_str(), 2, ShmOpenMode::open
+        );
+
+        // Construction should fail due to schema mismatch
+        EXPECT_FALSE(reader.valid());
+        EXPECT_FALSE(reader.is_compatible());
+
+        // All operations should be safe
+        EXPECT_TRUE(reader.empty());
+        EXPECT_FALSE(reader.try_push(1));
+        int val;
+        EXPECT_FALSE(reader.try_pop(val));
+
+        int status;
+        waitpid(pid, &status, 0);
+    }
+
+    shm_unlink(shm_name.c_str());
+}
