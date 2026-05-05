@@ -24,6 +24,8 @@
 
 namespace buffers {
 
+namespace detail {
+
 // Ring buffer header stored in shared memory
 struct ring_buffer_header {
     uint32_t schema_version{0};           // User-defined schema version for compatibility
@@ -33,8 +35,6 @@ struct ring_buffer_header {
     alignas(64) std::atomic<uint64_t> tail{0};
     alignas(64) std::atomic<uint64_t> overflow_count{0};
 };
-
-namespace detail {
 
 // Ring buffer region: header + sequence array + slots
 // The sequence array provides per-slot versioning to detect overwrites in push_overwrite mode.
@@ -51,7 +51,7 @@ struct ring_buffer_region {
 template<typename T, size_t N>
 class heap_storage {
 public:
-    using header_type = ring_buffer_header;
+    using header_type = detail::ring_buffer_header;
     using element_type = typename std::aligned_storage<sizeof(T), alignof(T)>::type;
     using region_type = detail::ring_buffer_region<T, N>;
     using sequence_type = std::atomic<uint64_t>;
@@ -103,7 +103,7 @@ enum class shm_open_mode {
 template<typename T, size_t N>
 class shm_storage {
 public:
-    using header_type = ring_buffer_header;
+    using header_type = detail::ring_buffer_header;
     using element_type = typename std::aligned_storage<sizeof(T), alignof(T)>::type;
     using region_type = detail::ring_buffer_region<T, N>;
     using sequence_type = std::atomic<uint64_t>;
@@ -602,7 +602,7 @@ private:
 };
 
 // Backward-compatible type aliases (CamelCase -> snake_case)
-using RingBufferHeader = ring_buffer_header;
+using RingBufferHeader = detail::ring_buffer_header;
 template<typename T, size_t N>
 using RingBufferRegion = detail::ring_buffer_region<T, N>;
 template<typename T, size_t N>
