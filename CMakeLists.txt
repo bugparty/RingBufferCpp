@@ -53,4 +53,22 @@ if (RINGBUFFER_BUILD_TESTS)
     target_link_libraries(SpscShmTest PRIVATE gtest gtest_main RingBuffer::RingBuffer Threads::Threads rt)
 
     gtest_discover_tests(SpscShmTest)
+
+    # Race condition tests
+    add_executable(SpscRaceTest
+        tests/race_condition_test.cpp
+    )
+    target_include_directories(SpscRaceTest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    target_link_libraries(SpscRaceTest PRIVATE gtest gtest_main RingBuffer::RingBuffer Threads::Threads rt)
+
+    gtest_discover_tests(SpscRaceTest)
+
+    # Simple race condition test
+    add_executable(SpscRaceSimpleTest
+        tests/race_simple_test.cpp
+    )
+    target_include_directories(SpscRaceSimpleTest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    target_link_libraries(SpscRaceSimpleTest PRIVATE gtest gtest_main RingBuffer::RingBuffer Threads::Threads rt)
+
+    gtest_discover_tests(SpscRaceSimpleTest)
 endif()

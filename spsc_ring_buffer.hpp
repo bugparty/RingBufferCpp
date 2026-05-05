@@ -29,7 +29,7 @@ namespace detail {
 // Ring buffer header stored in shared memory
 struct ring_buffer_header {
     uint32_t schema_version{0};           // User-defined schema version for compatibility
-    uint32_t capacity{0};
+    std::atomic<uint32_t> capacity{0};    // Atomic for proper synchronization with sequence initialization
     std::atomic<uint64_t> writer_pid{0};  // PID of the creator process (for debugging)
     alignas(64) std::atomic<uint64_t> head{0};
     alignas(64) std::atomic<uint64_t> tail{0};
@@ -66,7 +66,7 @@ public:
             new(&region_->sequence[i]) std::atomic<uint64_t>(0);
         }
         region_->header.schema_version = schema_version;
-        region_->header.capacity = N;
+        region_->header.capacity.store(N, std::memory_order_release);
         region_->header.writer_pid.store(static_cast<uint64_t>(::getpid()), std::memory_order_relaxed);
     }
 
@@ -246,27 +246,29 @@ shm_storage<T, N>::shm_storage(const char* name, uint32_t schema_version, shm_op
     if (is_creator_) {
         std::memset(region_, 0, sizeof(region_type));
         region_->header.schema_version = schema_version_;
-        region_->header.capacity = N;
         region_->header.writer_pid.store(static_cast<uint64_t>(::getpid()), std::memory_order_relaxed);
         // Initialize sequence array to 0
         for (size_t i = 0; i < N; ++i) {
             new(&region_->sequence[i]) std::atomic<uint64_t>(0);
         }
-        std::atomic_thread_fence(std::memory_order_release);
+        // Set capacity LAST with release semantics to publish initialization completion
+        // The release store synchronizes with the acquire load in the opener
+        region_->header.capacity.store(N, std::memory_order_release);
     } else {
         // Wait for creator to finish initialization
         // Spin until capacity is set (indicates creator finished)
         // Bounded wait to prevent hanging if creator is unresponsive
         constexpr int max_retries = 100;  // ~100ms max wait
         int retries = 0;
-        while (region_->header.capacity == 0 && retries < max_retries) {
+        uint32_t cap = 0;
+        while ((cap = region_->header.capacity.load(std::memory_order_acquire)) == 0 && retries < max_retries) {
             std::this_thread::yield();
             usleep(1000);  // 1ms sleep
             ++retries;
         }
 
         // Check if initialization completed
-        if (region_->header.capacity == 0) {
+        if (cap == 0) {
             // Creator failed to initialize in time
             munmap(region_, sizeof(region_type));
             region_ = nullptr;
@@ -274,10 +276,9 @@ shm_storage<T, N>::shm_storage(const char* name, uint32_t schema_version, shm_op
             fd_ = -1;
             return;
         }
-        std::atomic_thread_fence(std::memory_order_acquire);
 
         // Verify capacity matches expected size
-        if (region_->header.capacity != N) {
+        if (cap != N) {
             // Capacity mismatch - unmap and fail
             munmap(region_, sizeof(region_type));
             region_ = nullptr;
