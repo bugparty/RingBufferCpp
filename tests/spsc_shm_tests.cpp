@@ -347,3 +347,32 @@ TEST(SpscShmTest, SchemaVersionMismatch) {
 
     shm_unlink(shm_name.c_str());
 }
+
+TEST(SpscShmTest, NonCreatorTimeoutWaitingForCapacity) {
+    std::string shm_name = generate_unique_shm_name("test_capacity_timeout");
+    shm_unlink(shm_name.c_str());
+
+    // Create raw shared memory segment (bypass constructor)
+    // Leave capacity at 0 -- the non-creator will timeout
+    int fd = shm_open(shm_name.c_str(), O_CREAT | O_RDWR, 0666);
+    ASSERT_GE(fd, 0);
+    ASSERT_EQ(ftruncate(fd, sizeof(buffers::detail::ring_buffer_region<int, 16>)), 0);
+    close(fd);
+
+    // Open as non-creator with open mode
+    // This will mmap the region, see capacity==0, spin through yield/usleep loop, timeout
+    spsc_ring_buffer<int, 16, ShmStorage> reader(
+        shm_name.c_str(), 0, ShmOpenMode::open
+    );
+
+    // Construction should fail -- creator never initialized capacity
+    EXPECT_FALSE(reader.valid());
+
+    // Operations should be safe
+    EXPECT_TRUE(reader.empty());
+    EXPECT_FALSE(reader.try_push(1));
+    int val;
+    EXPECT_FALSE(reader.try_pop(val));
+
+    shm_unlink(shm_name.c_str());
+}
