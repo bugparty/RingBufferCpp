@@ -9,6 +9,14 @@ else()
     set(CMAKE_CXX_STANDARD 17)
 endif()
 
+# ThreadSanitizer support
+option(ENABLE_TSAN "Enable ThreadSanitizer" OFF)
+if(ENABLE_TSAN)
+    message(STATUS "ThreadSanitizer enabled")
+    add_compile_options(-fsanitize=thread -g -O1)
+    add_link_options(-fsanitize=thread)
+endif()
+
 add_library(RingBuffer INTERFACE)
 add_library(RingBuffer::RingBuffer ALIAS RingBuffer)
 target_include_directories(RingBuffer INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
