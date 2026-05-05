@@ -556,3 +556,53 @@ TEST(SpscTest, ResetStatsClearsOverflowCount) {
     EXPECT_EQ(buf.size(), 4u);
     EXPECT_TRUE(buf.full());
 }
+
+// Type with a non-trivial destructor that increments a counter
+struct DtorCounter {
+    int* counter_;
+    explicit DtorCounter(int* c = nullptr) : counter_(c) {}
+    ~DtorCounter() {
+        if (counter_) ++(*counter_);
+    }
+    DtorCounter(DtorCounter const& o) : counter_(o.counter_) {}
+    DtorCounter(DtorCounter&& o) noexcept : counter_(o.counter_) { o.counter_ = nullptr; }
+    DtorCounter& operator=(DtorCounter&& o) noexcept {
+        counter_ = o.counter_;
+        o.counter_ = nullptr;
+        return *this;
+    }
+    DtorCounter& operator=(DtorCounter const& o) {
+        counter_ = o.counter_;
+        return *this;
+    }
+};
+
+TEST(SpscTest, ClearCallsDestructorsOnNonTrivialType) {
+    int dtor_count = 0;
+    {
+        spsc_ring_buffer<DtorCounter, 8> buf;
+
+        // Push 5 elements, each pointing to dtor_count
+        for (int i = 0; i < 5; ++i) {
+            buf.try_push(DtorCounter(&dtor_count));
+        }
+        EXPECT_EQ(dtor_count, 0);  // No destructors called yet
+
+        // clear() should call ~DtorCounter() for all 5 elements
+        buf.clear();
+        EXPECT_EQ(dtor_count, 5);
+        EXPECT_TRUE(buf.empty());
+    }
+    // No additional destructors from buf destruction — clear() already destroyed everything
+    EXPECT_EQ(dtor_count, 5);
+}
+
+TEST(SpscTest, ClearWithNonTrivialTypeEmptyBuffer) {
+    int dtor_count = 0;
+    {
+        spsc_ring_buffer<DtorCounter, 4> buf;
+        buf.clear();  // No-op on empty buffer
+        EXPECT_EQ(dtor_count, 0);
+    }
+    EXPECT_EQ(dtor_count, 0);
+}
