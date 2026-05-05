@@ -30,8 +30,58 @@ if (RINGBUFFER_BUILD_TESTS)
         tests/swap_exception_test.cpp
     )
     target_include_directories(RingBufferTest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    target_compile_options(RingBufferTest PRIVATE -fsanitize=thread -g -O1)
+    target_link_options(RingBufferTest PRIVATE -fsanitize=thread)
     target_link_libraries(RingBufferTest PRIVATE gtest gtest_main RingBuffer::RingBuffer)
 
     include(GoogleTest)
     gtest_discover_tests(RingBufferTest)
+
+    find_package(Threads REQUIRED)
+
+    add_executable(SpscRingBufferTest
+        tests/spsc_tests.cpp
+    )
+    target_include_directories(SpscRingBufferTest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    target_compile_options(SpscRingBufferTest PRIVATE -fsanitize=thread -g -O1)
+    target_link_options(SpscRingBufferTest PRIVATE -fsanitize=thread)
+    target_link_libraries(SpscRingBufferTest PRIVATE gtest gtest_main RingBuffer::RingBuffer Threads::Threads)
+
+    gtest_discover_tests(SpscRingBufferTest
+        PROPERTIES
+        ENVIRONMENT "TSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/tests/tsan_suppressions.txt"
+    )
+
+    # Shared memory cross-process tests
+    add_executable(SpscShmTest
+        tests/spsc_shm_tests.cpp
+    )
+    target_include_directories(SpscShmTest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    target_compile_options(SpscShmTest PRIVATE -fsanitize=thread -g -O1)
+    target_link_options(SpscShmTest PRIVATE -fsanitize=thread)
+    target_link_libraries(SpscShmTest PRIVATE gtest gtest_main RingBuffer::RingBuffer Threads::Threads rt)
+
+    gtest_discover_tests(SpscShmTest)
+
+    # Race condition tests
+    add_executable(SpscRaceTest
+        tests/race_condition_test.cpp
+    )
+    target_include_directories(SpscRaceTest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    target_compile_options(SpscRaceTest PRIVATE -fsanitize=thread -g -O1)
+    target_link_options(SpscRaceTest PRIVATE -fsanitize=thread)
+    target_link_libraries(SpscRaceTest PRIVATE gtest gtest_main RingBuffer::RingBuffer Threads::Threads rt)
+
+    gtest_discover_tests(SpscRaceTest)
+
+    # Simple race condition test
+    add_executable(SpscRaceSimpleTest
+        tests/race_simple_test.cpp
+    )
+    target_include_directories(SpscRaceSimpleTest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    target_compile_options(SpscRaceSimpleTest PRIVATE -fsanitize=thread -g -O1)
+    target_link_options(SpscRaceSimpleTest PRIVATE -fsanitize=thread)
+    target_link_libraries(SpscRaceSimpleTest PRIVATE gtest gtest_main RingBuffer::RingBuffer Threads::Threads rt)
+
+    gtest_discover_tests(SpscRaceSimpleTest)
 endif()

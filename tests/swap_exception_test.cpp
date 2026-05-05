@@ -33,17 +33,17 @@ TEST(RingBufferSwapTest, SwapInconsistentOnException) {
     b2.push_back(ThrowingMove(3));
     b2.push_back(ThrowingMove(4));
 
-    // 现在 swap_impl 发生了变化。
-    // 它使用 std::swap 来交换元素，而 ThrowingMove 的移动构造函数会抛出异常。
-    // std::swap(a, b) 通常实现为: T temp(std::move(a)); a = std::move(b); b = std::move(temp);
-    // 在我们的 ThrowingMove 中，移动构造函数在 move_count == throw_at 时抛出异常。
+    // Now swap_impl has changed.
+    // It uses std::swap to swap elements, and ThrowingMove's move constructor throws exceptions.
+    // std::swap(a, b) is typically implemented as: T temp(std::move(a)); a = std::move(b); b = std::move(temp);
+    // In our ThrowingMove, the move constructor throws an exception when move_count == throw_at.
     
     ThrowingMove::move_count = 0;
     ThrowingMove::throw_at = 1; 
 
     try {
         b1.swap(b2);
-        // 如果 std::swap 使用了移动构造函数，它应该在这里抛出异常。
+        // If std::swap uses the move constructor, it should throw an exception here.
     } catch (const std::runtime_error& e) {
         EXPECT_STREQ(e.what(), "Simulated move exception");
     }
@@ -53,7 +53,7 @@ TEST(RingBufferSwapTest, SwapInconsistentOnException) {
     for (auto const& x : b1) std::cout << "b1 val: " << x.value << " "; std::cout << std::endl;
     for (auto const& x : b2) std::cout << "b2 val: " << x.value << " "; std::cout << std::endl;
 
-    // 如果 swap 提供强异常安全性，b1 和 b2 应该保持原样。
-    // 但 std::swap 交换单个元素并不提供对整个容器的强异常安全性，
-    // 除非我们捕获异常并回滚。
+    // If swap provides strong exception safety, b1 and b2 should remain unchanged.
+    // But std::swap for individual elements does not provide strong exception safety
+    // for the entire container, unless we catch exceptions and roll back.
 }

@@ -218,3 +218,39 @@ TEST(RingBufferTest, NonMemberSwapWithNonTriviallyCopyableType) {
     EXPECT_EQ(b2.front(), (std::vector<int>{1, 2, 3}));
     EXPECT_EQ(b2.back(), (std::vector<int>{4, 5, 6}));
 }
+
+TEST(RingBufferTest, SwapWithDifferentTailOffsets) {
+    // Specifically test swap_impl(..., std::false_type) with different tail offsets
+    // to ensure index mapping is preserved.
+    
+    // b1: size=3, tail=2, head=0 (with N=5)
+    ring_buffer<std::string, 5> b1;
+    b1.push_back("1");
+    b1.push_back("2");
+    b1.push_back("3");
+    b1.push_back("4");
+    b1.push_back("5");
+    b1.pop_front();
+    b1.pop_front();
+    
+    ASSERT_EQ(b1.size(), 3);
+    ASSERT_EQ(b1.front(), "3");
+
+    // b2: size=2, tail=0, head=2
+    ring_buffer<std::string, 5> b2;
+    b2.push_back("A");
+    b2.push_back("B");
+
+    ASSERT_EQ(b2.size(), 2);
+    ASSERT_EQ(b2.front(), "A");
+
+    b1.swap(b2);
+
+    EXPECT_EQ(b1.size(), 2);
+    EXPECT_EQ(b1.front(), "A");
+    EXPECT_EQ(b1.back(), "B");
+
+    EXPECT_EQ(b2.size(), 3);
+    EXPECT_EQ(b2.front(), "3");
+    EXPECT_EQ(b2.back(), "5");
+}

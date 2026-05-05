@@ -76,8 +76,36 @@ TEST(RingBufferTest, IteratorOrderAfterWrapAndPop) {
 TEST(RingBufferIteratorTest, EmptyBufferBeginMatchesEnd) {
     ring_buffer<int, 5> buf;
     EXPECT_TRUE(buf.empty());
+    EXPECT_EQ(buf.size(), 0);
     EXPECT_EQ(buf.begin(), buf.end());
     EXPECT_EQ(buf.cbegin(), buf.cend());
+
+    // In an empty buffer, the iterator should have count 0 and index N
+    auto it = buf.begin();
+    EXPECT_EQ(it.count(), 0);
+    EXPECT_EQ(it.index(), 5);
+
+    // Iterating an empty buffer should perform 0 loops
+    int loop_count = 0;
+    for (auto i = buf.begin(); i != buf.end(); ++i) {
+        loop_count++;
+    }
+    EXPECT_EQ(loop_count, 0);
+}
+
+TEST(RingBufferIteratorTest, EmptyBufferAfterPop) {
+    ring_buffer<int, 5> buf;
+    buf.push_back(1);
+    buf.pop_front();
+
+    EXPECT_TRUE(buf.empty());
+    EXPECT_EQ(buf.begin(), buf.end());
+
+    int loop_count = 0;
+    for (auto it = buf.begin(); it != buf.end(); ++it) {
+        loop_count++;
+    }
+    EXPECT_EQ(loop_count, 0);
 }
 
 TEST(RingBufferIteratorTest, PrefixIncrementWalksOldestToNewest) {
