@@ -376,3 +376,28 @@ TEST(SpscShmTest, NonCreatorTimeoutWaitingForCapacity) {
 
     shm_unlink(shm_name.c_str());
 }
+
+TEST(SpscShmTest, NonCreatorFstatTimeoutTooSmall) {
+    std::string shm_name = generate_unique_shm_name("test_fstat_timeout");
+    shm_unlink(shm_name.c_str());
+
+    // Create raw shm segment with only 1 byte — too small for region_type
+    int fd = shm_open(shm_name.c_str(), O_CREAT | O_RDWR, 0666);
+    ASSERT_GE(fd, 0);
+    ASSERT_EQ(ftruncate(fd, 1), 0);  // Way too small
+    close(fd);
+
+    // Open as non-creator: fstat sees size < sizeof(region_type), retries, times out
+    spsc_ring_buffer<int, 16, ShmStorage> reader(
+        shm_name.c_str(), 0, ShmOpenMode::open
+    );
+
+    // Construction should fail
+    EXPECT_FALSE(reader.valid());
+
+    // Operations should be safe
+    EXPECT_TRUE(reader.empty());
+    EXPECT_EQ(reader.size(), 0u);
+
+    shm_unlink(shm_name.c_str());
+}
