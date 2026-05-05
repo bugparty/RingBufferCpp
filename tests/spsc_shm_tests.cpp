@@ -2,6 +2,7 @@
 #include "spsc_ring_buffer.hpp"
 #include <sys/wait.h>
 #include <unistd.h>
+#include <sys/resource.h>
 #include <atomic>
 #include <string>
 
@@ -398,6 +399,43 @@ TEST(SpscShmTest, NonCreatorFstatTimeoutTooSmall) {
     // Operations should be safe
     EXPECT_TRUE(reader.empty());
     EXPECT_EQ(reader.size(), 0u);
+
+    shm_unlink(shm_name.c_str());
+}
+
+TEST(SpscShmTest, CreatorFtruncateFailure) {
+    std::string shm_name = generate_unique_shm_name("test_ftruncate_fail");
+    shm_unlink(shm_name.c_str());
+
+    pid_t pid = fork();
+    ASSERT_GE(pid, 0);
+
+    if (pid == 0) {
+        // Child: set file size limit to 0 so ftruncate fails
+        struct rlimit rl;
+        rl.rlim_cur = 0;
+        rl.rlim_max = 0;
+        setrlimit(RLIMIT_FSIZE, &rl);
+
+        spsc_ring_buffer<int, 16, ShmStorage> writer(
+            shm_name.c_str(), 0, ShmOpenMode::create
+        );
+
+        // ftruncate should have failed — buffer invalid
+        if (writer.valid()) {
+            exit(1);
+        }
+
+        // Operations should be safe
+        if (!writer.empty()) exit(2);
+        if (writer.try_push(1)) exit(3);
+
+        exit(0);
+    } else {
+        int status;
+        waitpid(pid, &status, 0);
+        EXPECT_EQ(WEXITSTATUS(status), 0);
+    }
 
     shm_unlink(shm_name.c_str());
 }
